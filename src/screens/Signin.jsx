@@ -14,9 +14,13 @@ function SignInScreen({ navigation }) {
   const [contraseña, setContraseña] = useState('');
   const [usuarioError, setUsuarioError] = useState('');
   const [contraseñaError, setContraseñaError] = useState('');
-
   const login = useGlobal(state => state.login);
-  const showRegisterOption = true; 
+  const authenticated = useGlobal(state => state.authenticated);
+  const showRegisterOption = true;
+
+  // Estado para controlar el Modal y el mensaje
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -29,53 +33,57 @@ function SignInScreen({ navigation }) {
   });
 
   if (!fontsLoaded) {
-    return null; 
+    return null;
   }
 
   function onSignIn() {
-    // Validación de campos
     const failUsuario = !usuario;
     const failContraseña = !contraseña;
 
-    if (failUsuario) {
-      setUsuarioError('Ingresa un Usuario');
-    } else {
-      setUsuarioError('');
-    }
+    if (failUsuario) setUsuarioError('Ingresa un Usuario');
+    else setUsuarioError('');
 
-    if (failContraseña) {
-      setContraseñaError('Ingresa una Contraseña');
-    } else {
-      setContraseñaError('');
-    }
+    if (failContraseña) setContraseñaError('Ingresa una Contraseña');
+    else setContraseñaError('');
 
-    if (failUsuario || failContraseña) return; // Salir si hay errores
+    if (failUsuario || failContraseña) return;
 
     // Llamada a la API para iniciar sesión
     api({
       method: 'POST',
       url: '/chat/signin/',
       data: {
-          username: usuario,
-          password: contraseña,
+        username: usuario,
+        password: contraseña,
       }
     })
     .then(response => {
-      const credentials = {
-        username: usuario,
-        password: contraseña
-      };
-      utils.log('Sign In:', response.data);
-      login(credentials, response.data.user);
+      const credentials = { username: usuario, password: contraseña };
+      console.log('Respuesta de Sign In:', response.data);
+
+      login(credentials, response.data.user, response.data.tokens)
+        .then(() => {
+          utils.log("Estado de authenticated después de login:", authenticated);
+          if (authenticated) {
+            navigation.navigate('Home'); // Navegar a Home si autenticado
+          } else {
+            setModalMessage("Error inesperado: Autenticación fallida.");
+            setModalVisible(true);
+          }
+        })
+        .catch(error => {
+          setModalMessage("Error al intentar iniciar sesión.");
+          setModalVisible(true);
+          console.error("Error en login:", error);
+        });
     })
     .catch(error => {
       if (error.response) {
-        console.error('Error de respuesta:', error.response.data);
-      } else if (error.request) {
-        console.error('Error de solicitud:', error.request);
+        setModalMessage("Credenciales inválidas. Inténtalo nuevamente.");
       } else {
-        console.error('Error', error.message);
+        setModalMessage("Ocurrió un error de conexión. Inténtalo de nuevo.");
       }
+      setModalVisible(true);
     });
   }
 
@@ -117,6 +125,9 @@ function SignInScreen({ navigation }) {
 }
 
 export default SignInScreen;
+
+
+
 
 
 

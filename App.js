@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { StatusBar } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -27,13 +27,14 @@ const DefaultThemeBlue = {
 const Stack = createStackNavigator();
 
 export default function App() {
-  const initialized = useGlobal(state => state.authenticated)
-  const authenticated = useGlobal(state => state.authenticated)
-  const init =useGlobal(state=> state.init)
+  const initialized = useGlobal(state => state.initialized); 
+  const authenticated = useGlobal(state => state.authenticated);  
+  const init = useGlobal(state => state.init);
 
-  useEffect(()=>{
-    init()
-  },[])
+  useEffect(() => {
+
+    init();
+  }, []);
   return (
     <NavigationContainer theme={DefaultThemeBlue}>
       <StatusBar barStyle="dark-content" />
@@ -56,4 +57,6 @@ export default function App() {
     </NavigationContainer>
   );
 }
+
+
 

@@ -1,19 +1,22 @@
 import * as SecureStore from 'expo-secure-store';
 
+
 async function set(key, object) {
     try {
         await SecureStore.setItemAsync(key, JSON.stringify(object));
     } catch (error) {
-        console.log('secure.set', error);
+        console.log('Error en secure.set:', error);
     }
 }
+
 
 async function get(key) {
     try {
         const data = await SecureStore.getItemAsync(key);
         return data ? JSON.parse(data) : null;
     } catch (error) {
-        console.log('secure.get', error);
+        console.log('Error en secure.get:', error);
+        return null;
     }
 }
 
@@ -21,19 +24,19 @@ async function remove(key) {
     try {
         await SecureStore.deleteItemAsync(key);
     } catch (error) {
-        console.log('secure.remove', error);
+        console.log('Error en secure.remove:', error);
     }
 }
 
+
 async function wipe() {
-    const keysToDelete = ['key1', 'key2', 'key3']; 
+    const keysToDelete = ['credentials']; 
     try {
         for (const key of keysToDelete) {
             await SecureStore.deleteItemAsync(key);
         }
-        console.log('Todas las claves han sido eliminadas.');
     } catch (error) {
-        console.log('secure.wipe', error);
+        console.log('Error en secure.wipe:', error);
     }
 }
 

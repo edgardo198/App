@@ -4,7 +4,6 @@ import { useFonts } from 'expo-font';
 import Title from '../common/Title';
 import styles from '../Styles/styles';
 import api from '../core/api';
-import utils from '../core/utils';
 import useGlobal from '../core/global';
 
 function Input({ title, value, error, setValue, setError, secureTextEntry = false }) {
@@ -105,7 +104,7 @@ function SignUpScreen({ navigation }) {
       }
   })
     .then(response => {
-      utils.log('Sign Up:', response.data);
+      console.log('Sign Up:', response.data);
       const credentials ={
         username: Usuario,
         password: Contraseña
