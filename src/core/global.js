@@ -1,59 +1,45 @@
 import { create } from 'zustand';
-import secure from './secure'; // Importar el módulo de almacenamiento seguro
-import api from './api';       // Importar la configuración de Axios
-import utils from './utils';   // Utilidades adicionales
+import { ADDRESS } from './api'; // Asegúrate de que ADDRESS esté exportado en api.js
+import secure from './secure';
+import api from './api';
 
-const useGlobal = create((set) => ({
+const useGlobal = create((set, get) => ({
     initialized: false,
     authenticated: false,
     user: {},
 
-    // Función para inicializar la autenticación
+    // Inicializar la autenticación
     init: async () => {
-        console.log("Iniciando el proceso de autenticación...");
-
-        // Obtener credenciales almacenadas
-        const credentials = await secure.get('credentials');
-        console.log("Credenciales obtenidas de secure:", credentials);
-
-        if (credentials) {
-            try {
-                // Realizar solicitud de inicio de sesión
+        try {
+            const credentials = await secure.get('credentials');
+            if (credentials) {
                 const response = await api.post('/chat/signin/', {
                     username: credentials.username,
                     password: credentials.password,
                 });
 
-                console.log("Respuesta completa de la API:", response); // Log para ver toda la respuesta
+                if (response.status === 200) {
+                    const { user, tokens } = response.data;
+                    await secure.set('tokens', tokens);
 
-                if (response.status !== 200) {
-                    throw new Error('Error de autenticación: Estado diferente de 200');
+                    set({
+                        authenticated: true,
+                        user,
+                    });
+                } else {
+                    throw new Error(`Error de autenticación: ${response.status}`);
                 }
-
-                // Destructura la respuesta para asegurar que contiene `user` y `tokens`
-                const { user, tokens } = response.data;
-                await secure.set('tokens', tokens);
-                console.log("Tokens almacenados correctamente en secure.");
-
-                // Actualizar estado en zustand
-                set({
-                    authenticated: true,
-                    user,
-                });
-            } catch (error) {
-                console.log('Error en useGlobal.init:', error);
             }
-        } else {
-            console.log("No se encontraron credenciales almacenadas en secure.");
+        } catch (error) {
+            console.error('Error en init:', error.message || error);
+        } finally {
+            set({ initialized: true });
         }
-
-        set({ initialized: true });
     },
 
-    // Función para realizar login
+    // Iniciar sesión
     login: async (credentials, user, tokens) => {
         try {
-            console.log("Guardando credenciales y tokens en secure...");
             await secure.set('credentials', credentials);
             await secure.set('tokens', tokens);
 
@@ -61,73 +47,68 @@ const useGlobal = create((set) => ({
                 authenticated: true,
                 user,
             });
-            console.log("Login exitoso: authenticated = true");
+            console.log('Inicio de sesión exitoso');
         } catch (error) {
-            console.error('Error durante el login:', error);
+            console.error('Error durante el inicio de sesión:', error.message || error);
         }
     },
 
-    // Función para realizar logout
+    // Cerrar sesión
     logout: async () => {
         try {
-            console.log("Borrando datos de autenticación...");
-            await secure.wipe(); // Llama a wipe para borrar 'credentials' y 'tokens'
+            await secure.wipe();
             set({
                 authenticated: false,
                 user: {},
                 initialized: true,
             });
         } catch (error) {
-            console.error('Error durante el logout:', error);
+            console.error('Error durante el cierre de sesión:', error.message || error);
         }
     },
 
     socket: null,
 
-    // Función para conectar WebSocket
+    // Conectar WebSocket
     socketConnect: async () => {
-        const tokens = await secure.get('tokens');
-        console.log("Tokens obtenidos para WebSocket:", tokens);
-
-        if (!tokens || !tokens.access) {
-            console.error('No se encontraron tokens válidos para la conexión WebSocket');
-            return;
-        }
-
-        utils.log('Token de acceso para WebSocket:', tokens.access);
-
         try {
-            const socket = new WebSocket(`ws://${ADDRESS}/chat/?token=${tokens.access}`);
+            const tokens = await secure.get('tokens');
+            if (!tokens || !tokens.access) {
+                console.warn('No se encontraron tokens válidos para WebSocket');
+                return;
+            }
+
+            const socket = new WebSocket(`ws://${ADDRESS}/ws/chat/?token=${tokens.access}`);
 
             socket.onopen = () => {
-                utils.log('WebSocket conectado');
+                console.log('WebSocket conectado');
             };
 
             socket.onmessage = (event) => {
-                utils.log('Mensaje recibido:', event.data);
+                console.log('Mensaje recibido:', event.data);
             };
 
             socket.onerror = (error) => {
-                utils.log('Error en WebSocket:', error.message);
+                console.error('Error en WebSocket:', error.message || error);
+                set({ socket: null });
             };
 
             socket.onclose = (event) => {
-                utils.log(`WebSocket cerrado: ${event.reason || 'Conexión cerrada'}`);
+                console.log(`WebSocket cerrado: ${event.reason || 'Conexión cerrada'}`);
                 set({ socket: null });
             };
 
             set({ socket });
         } catch (error) {
-            console.error('Error al establecer la conexión WebSocket:', error);
+            console.error('Error al conectar WebSocket:', error.message || error);
         }
     },
 
-    // Función para cerrar WebSocket
+    // Cerrar WebSocket
     socketClose: () => {
-        const { socket } = useGlobal.getState();
+        const { socket } = get();
         if (socket) {
             socket.close();
-            utils.log('Conexión WebSocket cerrada por el cliente');
             set({ socket: null });
         }
     },
