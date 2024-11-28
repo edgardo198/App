@@ -6,7 +6,6 @@ import Title from '../common/Title';
 import Button from '../common/Button';
 import Input from '../common/Input';
 import api from '../core/api';
-import utils from '../core/utils';
 import useGlobal from '../core/global';
 
 function SignInScreen({ navigation }) {
@@ -16,11 +15,11 @@ function SignInScreen({ navigation }) {
   const [contraseñaError, setContraseñaError] = useState('');
   const login = useGlobal(state => state.login);
   const authenticated = useGlobal(state => state.authenticated);
-  const showRegisterOption = true;
 
   // Estado para controlar el Modal y el mensaje
   const [isModalVisible, setModalVisible] = useState(false);
   const [modalMessage, setModalMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false); // Estado de carga
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -40,15 +39,19 @@ function SignInScreen({ navigation }) {
     const failUsuario = !usuario;
     const failContraseña = !contraseña;
 
+    // Validación de campos vacíos
     if (failUsuario) setUsuarioError('Ingresa un Usuario');
     else setUsuarioError('');
 
     if (failContraseña) setContraseñaError('Ingresa una Contraseña');
     else setContraseñaError('');
 
-    if (failUsuario || failContraseña) return;
+    if (failUsuario || failContraseña) return; // No enviar la petición si hay errores
 
-    // Llamada a la API para iniciar sesión
+    // Estado de carga activo
+    setIsLoading(true);
+
+    // Llamada a la API solo si ambos campos son válidos
     api({
       method: 'POST',
       url: '/chat/signin/',
@@ -58,26 +61,16 @@ function SignInScreen({ navigation }) {
       }
     })
     .then(response => {
-      const credentials = { username: usuario, password: contraseña };
-      console.log('Respuesta de Sign In:', response.data);
+      const credentials = { 
+        username: usuario, 
+        password: contraseña
+      };
 
-      login(credentials, response.data.user, response.data.tokens)
-        .then(() => {
-          utils.log("Estado de authenticated después de login:", authenticated);
-          if (authenticated) {
-            navigation.navigate('Home'); // Navegar a Home si autenticado
-          } else {
-            setModalMessage("Error inesperado: Autenticación fallida.");
-            setModalVisible(true);
-          }
-        })
-        .catch(error => {
-          setModalMessage("Error al intentar iniciar sesión.");
-          setModalVisible(true);
-          console.error("Error en login:", error);
-        });
+      login(credentials, response.data.user, response.data.tokens);
+      setIsLoading(false); // Estado de carga inactivo
     })
     .catch(error => {
+      setIsLoading(false); // Estado de carga inactivo
       if (error.response) {
         setModalMessage("Credenciales inválidas. Inténtalo nuevamente.");
       } else {
@@ -109,14 +102,13 @@ function SignInScreen({ navigation }) {
               secureTextEntry={true} 
             />
             <Button 
-              title="Ingresar" 
+              title={isLoading ? 'Cargando...' : 'Ingresar'} 
               onPress={onSignIn} 
+              disabled={isLoading} // Deshabilitar botón mientras carga
             />
-            {showRegisterOption && (
-              <TouchableOpacity onPress={() => navigation.navigate('SignUp')} style={styles.registerButton}>
-                <Text style={styles.registerText}>¿No tienes cuenta? Regístrate</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity onPress={() => navigation.navigate('SignUp')} style={styles.registerButton}>
+              <Text style={styles.registerText}>¿No tienes cuenta? Regístrate</Text>
+            </TouchableOpacity>
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>

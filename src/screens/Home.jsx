@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faInbox, faUser, faUserFriends, faSearch } from '@fortawesome/free-solid-svg-icons';
 import { TouchableOpacity } from 'react-native-gesture-handler';
 import useGlobal from '../core/global';
+import Miniatura from '../common/Miniatura';
 
 import RequestScreen from './Requests';
 import FriendsScreen from './Friends';
@@ -22,6 +23,7 @@ const icons = {
 function HomeScreen({ navigation }) {
   const socketConnect = useGlobal(state => state.socketConnect);
   const socketClose = useGlobal(state => state.socketClose);
+  const user =useGlobal(state => state.user)
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -34,19 +36,21 @@ function HomeScreen({ navigation }) {
     };
   }, [socketConnect, socketClose]);
 
+  function onSearch(){
+    navigation.navigate('Search')
+  }
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerLeft: () => (
           <View style={{ marginLeft: 16 }}>
-            <Image
-              source={profileImage}
-              style={{ width: 30, height: 30, borderRadius: 15 }}
-            />
+            <Miniatura url={user.miniatura} size={32} />
           </View>
         ),
         headerRight: () => (
-          <TouchableOpacity onPress={() => console.log('Search button pressed')}>
+          <TouchableOpacity 
+          onPress={onSearch}>
             <FontAwesomeIcon
               style={{ marginRight: 16 }}
               icon={faSearch}

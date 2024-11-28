@@ -1,95 +1,74 @@
 import React, { useState } from 'react';
-import { View, Text, Image, TouchableOpacity, Modal, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, Alert } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faPen, faSignOutAlt, faCamera, faImages } from '@fortawesome/free-solid-svg-icons';
 import * as ImagePicker from 'expo-image-picker';
 import useGlobal from '../core/global';
 import styles from '../Styles/styles';
-import utils from '../core/utils';
+import Miniatura from '../common/Miniatura';
 
 function ProfileImage() {
     const uploadMiniatura = useGlobal(state => state.uploadMiniatura);
+    const user = useGlobal(state => state.user);
 
-    const [profileImage, setProfileImage] = useState(require('../assets/kisspng-portable-.png'));
     const [isModalVisible, setModalVisible] = useState(false);
 
     const pickImage = async (fromCamera = false) => {
-        const permissionResult = fromCamera
-            ? await ImagePicker.requestCameraPermissionsAsync()
-            : await ImagePicker.requestMediaLibraryPermissionsAsync();
+        try {
+            const permissionResult = fromCamera
+                ? await ImagePicker.requestCameraPermissionsAsync()
+                : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-        if (!permissionResult.granted) {
-            Alert.alert(
-                "Permiso requerido",
-                `Se necesita permiso para acceder a tu ${fromCamera ? 'cámara' : 'galería de fotos'}.`
-            );
-            return;
+            if (!permissionResult.granted) {
+                Alert.alert(
+                    'Permiso requerido',
+                    `Se necesita permiso para acceder a tu ${fromCamera ? 'cámara' : 'galería de fotos'}.`
+                );
+                return;
+            }
+
+            const result = fromCamera
+                ? await ImagePicker.launchCameraAsync({
+                    allowsEditing: true,
+                    aspect: [1, 1],
+                    quality: 1,
+                    base64: true,
+                })
+                : await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    allowsEditing: true,
+                    aspect: [1, 1],
+                    quality: 1,
+                    base64: true,
+                });
+
+            if (!result.canceled && result.assets?.[0]) {
+                const { uri, base64 } = result.assets[0];
+                const fileName = uri.split('/').pop() || 'imagen_desconocida.png';
+
+                // Actualiza la miniatura en el backend
+                await uploadMiniatura({ base64, fileName });
+            }
+        } catch (error) {
+            Alert.alert('Error', 'No se pudo procesar la imagen. Por favor, intenta de nuevo.');
+        } finally {
+            setModalVisible(false);
         }
-
-        const result = fromCamera
-            ? await ImagePicker.launchCameraAsync({
-                allowsEditing: true,
-                aspect: [1, 1],
-                quality: 1,
-                base64: true,
-            })
-            : await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
-                aspect: [1, 1],
-                quality: 1,
-                base64: true,
-            });
-
-        if (!result.canceled && result.assets && result.assets[0]) {
-            const imageUri = result.assets[0].uri;
-            const imageBase64 = result.assets[0].base64;
-
-            // Actualiza la imagen de perfil
-            setProfileImage({ uri: imageUri });
-
-            // Llama a uploadMiniatura para cargar la imagen
-            uploadMiniatura(imageBase64);
-        }
-
-        setModalVisible(false);
     };
 
     return (
         <View>
-            <TouchableOpacity style={{ marginBottom: 20 }} onPress={() => setModalVisible(true)}>
-                <Image
-                    source={profileImage}
-                    style={{
-                        width: 160,
-                        height: 160,
-                        borderRadius: 80,
-                        backgroundColor: '#cceeff',
-                    }}
-                />
-                <View
-                    style={{
-                        position: 'absolute',
-                        bottom: 0,
-                        right: 0,
-                        backgroundColor: '#0078d4',
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 3,
-                        borderColor: '#e6f7ff',
-                    }}
-                >
+            <TouchableOpacity style={styles.profileImageContainer} onPress={() => setModalVisible(true)}>
+                <Miniatura url={user.miniatura} size={180} />
+                <View style={styles.editIconContainer}>
                     <FontAwesomeIcon icon={faPen} size={15} color="#d0d0d0" />
                 </View>
             </TouchableOpacity>
 
-            {/* Modal para seleccionar opción de imagen */}
+            {/* Modal para selección de imagen */}
             <Modal
-                transparent={true}
-                animationType="slide"
+                transparent
+                animationType="fade"
                 visible={isModalVisible}
                 onRequestClose={() => setModalVisible(false)}
             >
@@ -118,7 +97,7 @@ function ProfileLogout() {
 
     return (
         <TouchableOpacity onPress={logout} style={styles.logoutButton}>
-            <FontAwesomeIcon icon={faSignOutAlt} size={20} color="#ffffff" style={{ marginRight: 12 }} />
+            <FontAwesomeIcon icon={faSignOutAlt} size={20} color="#ffffff" style={styles.iconMargin} />
             <Text style={styles.logoutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
     );
@@ -130,14 +109,17 @@ function ProfileScreen() {
     return (
         <View style={styles.profileContainer}>
             <ProfileImage />
-            <Text style={styles.userName}>{user.name}</Text>
-            <Text style={styles.userUsername}>{user.username}</Text>
+            <Text style={styles.userName}>{user?.name || 'Usuario'}</Text>
+            <Text style={styles.userUsername}>{user?.username || 'Sin nombre de usuario'}</Text>
             <ProfileLogout />
         </View>
     );
 }
 
 export default ProfileScreen;
+
+
+
 
 
 
