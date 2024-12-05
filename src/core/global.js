@@ -8,12 +8,17 @@ const SOURCES = {
     MINIATURA: 'miniatura', // Define esta constante
 };
 
+function responseSearch(set, get, data) {
+
+    set((state) => ({
+        searchList: data
+    }));
+}
 function responseMiniatura(set, get, data) {
 
     set((state) => ({
         user: data
     }));
-    console.log('Miniatura actualizada en el estado:', data);
 }
 
 const useGlobal = create((set, get) => ({
@@ -104,6 +109,7 @@ const useGlobal = create((set, get) => ({
                 log('onmessage:', parsed)
 
                 const responses= {
+                    'search': responseSearch,
                     'miniatura': responseMiniatura
                 }
                 const resp = responses[parsed.source]
@@ -148,10 +154,25 @@ const useGlobal = create((set, get) => ({
         }
     },
 
+    searchList: null,
+
+    searchUsers: (query) => {
+        if(query){
+            const socket = get().socket;
+            socket.send(JSON.stringify({
+                source: 'search',
+                query: query
+            }))                    
+        } else {
+            set((state) =>({
+                searchList: null
+            }))
+        }
+    },
+
     uploadMiniatura: (file) => {
         const socket = get().socket;
         if (!socket || socket.readyState !== WebSocket.OPEN) {
-            console.warn('El WebSocket no está conectado.');
             return;
         }
         socket.send(
