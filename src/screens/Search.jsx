@@ -1,48 +1,64 @@
 import React, { useEffect, useState } from 'react';
-import { SafeAreaView, TextInput, View, Text, FlatList } from 'react-native';
+import { SafeAreaView, TextInput, View, Text, FlatList, TouchableOpacity } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import Empty from '../common/Empty';
 import Miniatura from '../common/Miniatura';
-import { TouchableOpacity } from 'react-native-gesture-handler';
 import useGlobal from '../core/global';
+import Cell from '../common/Cell';
 
 function SearchButton({ user }) {
-    if (user.status === 'connected') {
-        return (
+    console.log('User status:', user.status);
+    
+    const requestConnect = useGlobal(state => state.requestConnect);
+
+    if(user.status==='connected'){
+        return(
             <FontAwesomeIcon
-                icon="circle-check"
-                size={30}
-                color="#202020"
+                icon='circle-check'
+                size={40}
+                color='#20d080'
                 style={{
-                    marginRight: 10,
+                    margin: 10
                 }}
+
             />
-        );
+        )
     }
-    const data = {};
+
+
+    const data = {
+        text: '',
+        disabled: false,
+        onPress: () => {}
+    };
+
     switch (user.status) {
         case 'no-connection':
             data.text = 'Conectar';
             data.disabled = false;
-            data.onPress = () => {};
+            data.onPress = () => {
+                requestConnect(user.username);
+            };
             break;
 
-        case 'peding-them':
+        case 'pending-them':
             data.text = 'Pendiente';
             data.disabled = true;
-            data.onPress = () => {};
             break;
 
         case 'pending-me':
             data.text = 'Aceptar';
             data.disabled = false;
-            data.onPress = () => {};
+            data.onPress = () => {
+                requestConnect(user.username);
+            };
             break;
 
         default:
             break;
     }
+
     return (
         <TouchableOpacity
             style={{
@@ -53,6 +69,8 @@ function SearchButton({ user }) {
                 justifyContent: 'center',
                 borderRadius: 18,
             }}
+            onPress={data.disabled ? null : data.onPress} 
+            disabled={data.disabled} 
         >
             <Text
                 style={{
@@ -68,16 +86,7 @@ function SearchButton({ user }) {
 
 function SearchRow({ user }) {
     return (
-        <View
-            style={{
-                paddingHorizontal: 20,
-                flexDirection: 'row',
-                alignItems: 'center',
-                borderBottomWidth: 1,
-                borderColor: '#f0f0f0',
-                height: 106,
-            }}
-        >
+        <Cell>
             <Miniatura url={user.miniatura} size={76} />
             <View
                 style={{
@@ -103,7 +112,7 @@ function SearchRow({ user }) {
                 </Text>
             </View>
             <SearchButton user={user} />
-        </View>
+        </Cell>
     );
 }
 

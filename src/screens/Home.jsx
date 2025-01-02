@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect } from 'react';
-import { View, Image } from 'react-native';
+import { View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faInbox, faUser, faUserFriends, faSearch } from '@fortawesome/free-solid-svg-icons';
@@ -12,10 +12,9 @@ import FriendsScreen from './Friends';
 import ProfileScreen from './Profile';
 
 const Tab = createBottomTabNavigator();
-const profileImage = require('../assets/kisspng-portable-.png');
 
 const icons = {
-  Chats: faInbox,
+  Solicitudes: faInbox, // Cambiado de "Chats" a "Solicitudes"
   Amigos: faUserFriends,
   Perfil: faUser,
 };
@@ -23,7 +22,7 @@ const icons = {
 function HomeScreen({ navigation }) {
   const socketConnect = useGlobal(state => state.socketConnect);
   const socketClose = useGlobal(state => state.socketClose);
-  const user =useGlobal(state => state.user)
+  const user = useGlobal(state => state.user);
 
   useLayoutEffect(() => {
     navigation.setOptions({ headerShown: false });
@@ -36,8 +35,8 @@ function HomeScreen({ navigation }) {
     };
   }, [socketConnect, socketClose]);
 
-  function onSearch(){
-    navigation.navigate('Search')
+  function onSearch() {
+    navigation.navigate('Search');
   }
 
   return (
@@ -45,12 +44,11 @@ function HomeScreen({ navigation }) {
       screenOptions={({ route }) => ({
         headerLeft: () => (
           <View style={{ marginLeft: 16 }}>
-            <Miniatura url={user.miniatura} size={32} />
+            <Miniatura url={user?.miniatura} size={32} />
           </View>
         ),
         headerRight: () => (
-          <TouchableOpacity 
-          onPress={onSearch}>
+          <TouchableOpacity onPress={onSearch}>
             <FontAwesomeIcon
               style={{ marginRight: 16 }}
               icon={faSearch}
@@ -68,7 +66,7 @@ function HomeScreen({ navigation }) {
         tabBarShowLabel: false,
       })}
     >
-      <Tab.Screen name="Chats" component={RequestScreen} />
+      <Tab.Screen name="Solicitudes" component={RequestScreen} />
       <Tab.Screen name="Amigos" component={FriendsScreen} />
       <Tab.Screen name="Perfil" component={ProfileScreen} />
     </Tab.Navigator>

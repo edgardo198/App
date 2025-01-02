@@ -1,8 +1,9 @@
 import React from 'react';
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
-import { View, Text } from "react-native"; 
+import { View, Text } from "react-native";
+import { faBell } from "@fortawesome/free-solid-svg-icons"; // Importar un icono predeterminado
 
-function Empty({ icon, message, centered = true }) {
+function Empty({ icon = faBell, message = 'Sin solicitudes', centered = true }) {
     return (
         <View
             style={{
@@ -33,3 +34,4 @@ function Empty({ icon, message, centered = true }) {
 }
 
 export default Empty;
+

@@ -7,7 +7,7 @@ import SignInScreen from './src/screens/Signin';
 import SignUpScreen from './src/screens/SignUp';
 import HomeScreen from './src/screens/Home';
 import SearchScreen from './src/screens/Search';
-import MessagesScreen from './src/screens/Message';
+import MessagesScreen from './src/screens/Messages';
 import './src/core/fontawesome';
 import useGlobal from './src/core/global';
 
