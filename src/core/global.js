@@ -26,6 +26,7 @@ function responseMessageList(set, get, data) {
     const messagesList = Array.isArray(get().messagesList) ? [...get().messagesList, ...messages] : messages;
     set((state) => ({
         messagesList,
+        messagesNext: data.next,
         messagesUsername: data.friend.username
     }));
 }
@@ -253,12 +254,14 @@ const useGlobal = create((set, get) => ({
     },
     friendList: [],
     messagesList: [],
+    messagesNext: null,
     messagesTyping: null,
     messagesUsername: null,
     messageList: (connectionId, page = 0) => {
         if (page === 0) {
             set((state) => ({
                 messagesList: [],
+                messagesNext: null,
                 messagesTyping: null,
                 messagesUsername: null
             }));

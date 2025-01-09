@@ -200,6 +200,7 @@ function MessageInput({ message, setMessage, onSend }) {
 function MessagesScreen({ navigation, route }) {
     const [message, setMessage] = useState('');
     const messagesList = useGlobal((state) => state.messagesList);
+    const messagesNext = useGlobal(state => state.messagesNext)
 
     const messageList = useGlobal((state) => state.messageList);
     const messageSend = useGlobal((state) => state.messageSend);
@@ -237,7 +238,7 @@ function MessagesScreen({ navigation, route }) {
 
     return (
         <SafeAreaView style={styles.container}>
-            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            
                 <View style={styles.container}>
                     <FlatList
                         automaticallyAdjustKeyboardInsets
@@ -245,6 +246,11 @@ function MessagesScreen({ navigation, route }) {
                         data={messagesList && Array.isArray(messagesList) ? [{ id: -1 }, ...messagesList] : []}
                         inverted
                         keyExtractor={(item) => item?.id?.toString() || item?.id}
+                        onEndReached={() => {
+                            if (messagesNext) {
+                                messageList(connectionId, messagesNext)
+                            }
+                        }}
                         renderItem={({ item, index }) => {
                             if (!item || typeof item !== 'object') {
                                 console.warn(`Invalid item at index ${index}:`, item);
@@ -254,7 +260,7 @@ function MessagesScreen({ navigation, route }) {
                         }}
                     />
                 </View>
-            </TouchableWithoutFeedback>
+    
             <MessageInput message={message} setMessage={onType} onSend={onSend} />
         </SafeAreaView>
     );
