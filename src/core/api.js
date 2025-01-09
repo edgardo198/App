@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 
 export const ADDRESS = Platform.OS === 'ios'
     ? 'localhost:8000'  
-    : '192.168.1.61:8000';  
+    : '192.168.0.111:8000';  
 
 
 

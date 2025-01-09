@@ -3,130 +3,119 @@ import { ADDRESS } from './api';
 import secure from './secure';
 import api from './api';
 import { log } from '../core/utils';
-import { useReducer } from 'react';
 
 const SOURCES = {
-    MINIATURA: 'miniatura', 
+    MINIATURA: 'miniatura',
 };
 
-function responseFriendList(set, get, friendList){
-    set((state)=>({
-        friendList: friendList
-    }))
+function responseFriendList(set, get, friendList) {
+    set((state) => ({
+        friendList: Array.isArray(friendList) ? friendList : []
+    }));
 }
 
-
-function responseFriendNew(set, get, friend){
-    const friendList = [friend, ...get().friendList]
-    set((state)=>({
-        friendList: friendList
-    }))
+function responseFriendNew(set, get, friend) {
+    const friendList = [friend, ...get().friendList];
+    set((state) => ({
+        friendList
+    }));
 }
 
-function responseMessageList(set, get, data){
-    set((state)=>({
-        messagesList: [...get().messagesList, ...data.messages],
+function responseMessageList(set, get, data) {
+    const { messages } = data;
+    const messagesList = Array.isArray(get().messagesList) ? [...get().messagesList, ...messages] : messages;
+    set((state) => ({
+        messagesList,
         messagesUsername: data.friend.username
-    }))
+    }));
 }
 
-function responseMessageSend(set, get, data){
-    const username = data.friend.username
-    const friendList = [...get().friendList]
-    const friendIndex = friendList.friendIndex(
-        item = item.friend.username === username
-    )
-    if (friendIndex>=0){
-        const item = friendList[friendIndex]
-        item.preview = data.message.text
-        item.update = data.message.created
-        friendList.splice(friendIndex, 1)
-        friendList.unshift(item)
-        set((state) =>({
-            friendList,friendList
-        }))
+function responseMessageSend(set, get, data) {
+    const username = data.friend.username;
+    const friendList = [...get().friendList];
+    const friendIndex = friendList.findIndex((item) => item.friend.username === username);
+
+    if (friendIndex >= 0) {
+        const item = friendList[friendIndex];
+        item.preview = data.message.text;
+        item.update = data.message.created;
+        friendList.splice(friendIndex, 1);
+        friendList.unshift(item);
+        set((state) => ({
+            friendList
+        }));
     }
 
-    if(username !== get().messagesUsername){
-        return
+    if (username !== get().messagesUsername) {
+        return;
     }
 
-    const messagesList = [data.message, ...get().messagesList]
-    set((state)=>({
-        messagesList: messagesList
-    }))
+    const messagesList = [data.message, ...get().messagesList];
+    set((state) => ({
+        messagesList,
+        messagesTyping: null
+    }));
 }
 
 function responseMessageType(set, get, data) {
-	if (data.username !== get().messagesUsername) return
-	set((state) => ({
-		messagesTyping: new Date()
-	}))
+    if (data.username !== get().messagesUsername) return;
+    set((state) => ({
+        messagesTyping: new Date()
+    }));
 }
+
 function responseRequestAccept(set, get, connection) {
     const user = get().user;
     if (user.username === connection.receiver.username) {
         const requestList = [...get().requestList];
-        const requestIndex = requestList.findIndex(
-            request => request.id === connection.id
-        );
+        const requestIndex = requestList.findIndex((request) => request.id === connection.id);
         if (requestIndex >= 0) {
             requestList.splice(requestIndex, 1);
             set(() => ({
-                requestList: requestList
+                requestList
             }));
         }
     }
-    const sl = get().searchList
-    if (sl === null){
-        return
+
+    const sl = get().searchList;
+    if (!sl) return;
+
+    const searchList = [...sl];
+    let searchIndex = -1;
+    if (user.username === connection.receiver.username) {
+        searchIndex = searchList.findIndex((user) => user.username === connection.sender.username);
+    } else {
+        searchIndex = searchList.findIndex((user) => user.username === connection.receiver.username);
     }
-    const searchList= [...sl]
-    let searchIndex = -1
-    if (user.username === connection.receiver.username){
-        searchIndex = searchList.findIndex(
-            user => user.username === connection.sender.username
-        )
-    }
-    else {
-        searchIndex = searchList.findIndex(
-            user => user.username === connection.receiver.username
-        ) 
-    }
-    if (searchIndex >= 0){
-        searchList[searchIndex].status = 'connected'
-        set ((state) =>{
-            searchList: searchList
-        })
+    if (searchIndex >= 0) {
+        searchList[searchIndex].status = 'connected';
+        set(() => ({
+            searchList
+        }));
     }
 }
 
 function responseRequestConnect(set, get, data) {
     const user = get().user;
-    
+
     if (user.username === data.sender.username) {
         const searchList = [...get().searchList];
+        const searchIndex = searchList.findIndex((request) => request.username === data.receiver.username);
 
-        const searchIndex = searchList.findIndex(
-            request => request.username === data.receiver.username
-        );
-        
         if (searchIndex >= 0) {
             searchList[searchIndex].status = 'pending-them';
             set(() => ({
-                searchList: searchList
+                searchList
             }));
         }
     } else {
         const requestList = [...get().requestList];
-        const requestIndex = requestList.findIndex(
-            request => request.username === data.sender.username
-        );
+        const requestIndex = requestList.findIndex((request) => request.username === data.sender.username);
 
         if (requestIndex === -1) {
             requestList.push(data); // Agregar la nueva solicitud
             set(() => ({
-                requestList: requestList
+                requestList
             }));
         }
     }
@@ -134,13 +123,13 @@ function responseRequestConnect(set, get, data) {
 
 function responseRequestList(set, get, requestList) {
     set(() => ({
-        requestList: requestList || []
+        requestList: Array.isArray(requestList) ? requestList : []
     }));
 }
 
 function responseSearch(set, get, data) {
     set(() => ({
-        searchList: data || []
+        searchList: Array.isArray(data) ? data : []
     }));
 }
 
@@ -154,7 +143,6 @@ const useGlobal = create((set, get) => ({
     initialized: false,
     authenticated: false,
     user: {},
-
     init: async () => {
         try {
             const credentials = await secure.get('credentials');
@@ -180,7 +168,6 @@ const useGlobal = create((set, get) => ({
             set({ initialized: true });
         }
     },
-
     login: async (credentials, user, tokens) => {
         await secure.set('credentials', credentials);
         await secure.set('tokens', tokens);
@@ -189,7 +176,6 @@ const useGlobal = create((set, get) => ({
             user,
         });
     },
-
     logout: async () => {
         await secure.wipe();
         set({
@@ -198,10 +184,8 @@ const useGlobal = create((set, get) => ({
             initialized: true,
         });
     },
-
     socket: null,
     socketConnected: false,
-
     socketConnect: async (retries = 3) => {
         try {
             const tokens = await secure.get('tokens');
@@ -215,7 +199,6 @@ const useGlobal = create((set, get) => ({
                 socket.send(JSON.stringify({ source: 'request.list' }));
                 set({ socketConnected: true });
                 socket.send(JSON.stringify({ source: 'friend.list' }));
-                set({ socketConnected: true });
             };
 
             socket.onmessage = (event) => {
@@ -225,7 +208,7 @@ const useGlobal = create((set, get) => ({
                     'friend.new': responseFriendNew,
                     'message.list': responseMessageList,
                     'message.send': responseMessageSend,
-                    'message.type':    responseMessageType,
+                    'message.type': responseMessageType,
                     'request.accept': responseRequestAccept,
                     'request.connect': responseRequestConnect,
                     'request.list': responseRequestList,
@@ -252,7 +235,6 @@ const useGlobal = create((set, get) => ({
             console.error('Error al conectar WebSocket:', error.message || error);
         }
     },
-
     socketClose: () => {
         const { socket } = get();
         if (socket) {
@@ -260,9 +242,7 @@ const useGlobal = create((set, get) => ({
             set({ socket: null, socketConnected: false });
         }
     },
-
     searchList: [],
-
     searchUsers: (query) => {
         const socket = get().socket;
         if (query && socket?.readyState === WebSocket.OPEN) {
@@ -271,61 +251,54 @@ const useGlobal = create((set, get) => ({
             set(() => ({ searchList: [] }));
         }
     },
-    friendList: null,
-
+    friendList: [],
     messagesList: [],
     messagesTyping: null,
     messagesUsername: null,
-
-    messageList: (connectionId, page=0) => {
-        if(page === 0){
-            set((state)=>({
+    messageList: (connectionId, page = 0) => {
+        if (page === 0) {
+            set((state) => ({
                 messagesList: [],
                 messagesTyping: null,
                 messagesUsername: null
-            }))
+            }));
         }
 
         const socket = get().socket;
         socket.send(JSON.stringify({
-            source:'message.list',
-            connectionId: connectionId,
-            page: page
-        }))
+            source: 'message.list',
+            connectionId,
+            page
+        }));
     },
-
     messageSend: (connectionId, message) => {
         const socket = get().socket;
         socket.send(JSON.stringify({
-            source:'message.send',
-            connectionId: connectionId,
-            message: message
-        }))
+            source: 'message.send',
+            connectionId,
+            message
+        }));
     },
     messageType: (username) => {
-		const socket = get().socket
-		socket.send(JSON.stringify({
-			source: 'message.type',
-			username: username
-		}))
-	},
-
+        const socket = get().socket;
+        socket.send(JSON.stringify({
+            source: 'message.type',
+            username
+        }));
+    },
     requestList: [],
-
     requestAccept: (username) => {
         const socket = get().socket;
         if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ source: 'request.accept', username }));
         }
     },
-
     requestConnect: (username) => {
         const socket = get().socket;
         if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ source: 'request.connect', username }));
         }
     },
-
     uploadMiniatura: (file) => {
         const socket = get().socket;
         if (socket?.readyState === WebSocket.OPEN) {
