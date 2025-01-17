@@ -206,7 +206,7 @@ function MessagesScreen({ navigation, route }) {
     const messageSend = useGlobal((state) => state.messageSend);
     const messageType = useGlobal((state) => state.messageType);
 
-    const conectionId = route?.params?.id;
+    const connectionId = route?.params?.id;
     const friend = route.params.friend;
 
     useLayoutEffect(() => {
@@ -216,17 +216,17 @@ function MessagesScreen({ navigation, route }) {
     }, [friend, navigation]);
 
     useEffect(() => {
-        if (conectionId) {
-            messageList(conectionId);
+        if (connectionId) {
+            messageList(connectionId);
         }
-    }, [conectionId, messageList]);
+    }, [connectionId, messageList]);
 
     const onSend = useCallback(() => {
         const cleaned = message.trim();
         if (!cleaned) return;
-        messageSend(conectionId, cleaned);
+        messageSend(connectionId, cleaned);
         setMessage('');
-    }, [conectionId, message, messageSend]);
+    }, [connectionId, message, messageSend]);
 
     const onType = useCallback(
         (value) => {
@@ -238,35 +238,35 @@ function MessagesScreen({ navigation, route }) {
 
     return (
         <SafeAreaView style={styles.container}>
-            
-                <View style={styles.container}>
-                    <FlatList
-                        automaticallyAdjustKeyboardInsets
-                        contentContainerStyle={{ paddingTop: 30 }}
-                        data={messagesList && Array.isArray(messagesList) ? [{ id: -1 }, ...messagesList] : []}
-                        inverted
-                        keyExtractor={(item) => item?.id?.toString() || item?.id}
-                        onEndReached={() => {
-                            if (messagesNext) {
-                                messageList(connectionId, messagesNext)
-                            }
-                        }}
-                        renderItem={({ item, index }) => {
-                            if (!item || typeof item !== 'object') {
-                                console.warn(`Invalid item at index ${index}:`, item);
-                                return null;
-                            }
-                            return <MessageBubble index={index} message={item} friend={friend} />;
-                        }}
-                    />
-                </View>
-    
+            <View style={styles.container}>
+                <FlatList
+                    automaticallyAdjustKeyboardInsets
+                    contentContainerStyle={{ paddingTop: 30 }}
+                    data={messagesList && Array.isArray(messagesList) ? [{ id: -1 }, ...messagesList] : []}
+                    inverted
+                    keyExtractor={(item) => item?.id?.toString() || item?.id}
+                    onEndReached={() => {
+                        if (messagesNext) {
+                            messageList(connectionId, messagesNext)
+                        }
+                    }}
+                    renderItem={({ item, index }) => {
+                        if (!item || typeof item !== 'object') {
+                            console.warn(`Invalid item at index ${index}:`, item);
+                            return null;
+                        }
+                        return <MessageBubble index={index} message={item} friend={friend} />;
+                    }}
+                />
+            </View>
+
             <MessageInput message={message} setMessage={onType} onSend={onSend} />
         </SafeAreaView>
     );
 }
 
 export default MessagesScreen;
+
 
 
 
