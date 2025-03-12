@@ -1,272 +1,210 @@
 import React, { useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
-import { 
-    Keyboard, 
-    SafeAreaView, 
-    Text, 
-    TouchableWithoutFeedback, 
-    View, 
-    TextInput, 
-    TouchableOpacity, 
-    FlatList, 
-    Easing, 
-    Animated 
+import {
+  SafeAreaView,
+  View,
+  FlatList,
+  Modal,
+  Image,
+  useColorScheme,
 } from 'react-native';
-import Miniatura from '../common/Miniatura';
-import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
-import { faPaperPlane } from '@fortawesome/free-solid-svg-icons';
+import * as Notifications from 'expo-notifications';
+import * as ImagePicker from 'expo-image-picker';
+import debounce from 'lodash/debounce';
+import MessageHeader from '../components/Message/MessageHeader';
+import MessageInput from '../components/Message/MessageInput';
+import MessageBubble from '../components/Message/MessageBubble';
+import useRecording from '../core/useRecording';
+import { registerForPushNotificationsAsync } from '../core/notifications';
 import useGlobal from '../core/global';
 
-const styles = {
-    container: { flex: 1 },
-    header: { flexDirection: 'row', alignItems: 'center', paddingLeft: 16 },
-    headerText: { color: '#202020', marginLeft: 10, fontSize: 18, fontWeight: 'bold' },
-    messageInputContainer: {
-        paddingHorizontal: 10,
-        paddingBottom: 10,
-        backgroundColor: 'white',
-        flexDirection: 'row',
-        alignItems: 'center',
+const MessagesScreen = ({ navigation, route }) => {
+  const [message, setMessage] = useState('');
+  const [pushToken, setPushToken] = useState(null);
+  const [fullScreenImage, setFullScreenImage] = useState(null);
+
+  // Estado global: actualizado vía WebSocket en tiempo real.
+  const messagesList = useGlobal((state) => state.messagesList);
+  const messagesNext = useGlobal((state) => state.messagesNext);
+  const messageList = useGlobal((state) => state.messageList);
+  const messageSend = useGlobal((state) => state.messageSend);
+  const messageSendImage = useGlobal((state) => state.messageSendImage);
+  const messageSendAudio = useGlobal((state) => state.messageSendAudio);
+  const messageType = useGlobal((state) => state.messageType);
+  const clearMessages = useGlobal((state) => state.clearMessages);
+
+  const connectionId = route?.params?.id;
+  const friend = route.params.friend;
+  const flatListRef = useRef();
+  const theme = useColorScheme();
+  const { isRecording, startRecording, stopRecording } = useRecording();
+
+  // Al cambiar de conversación, limpiar el estado global y cargar los mensajes.
+  useEffect(() => {
+    if (clearMessages) clearMessages();
+    if (connectionId) messageList(connectionId);
+  }, [connectionId, friend, clearMessages, messageList]);
+
+  // Enviar evento de tipeo con debounce
+  const debouncedType = useCallback(
+    debounce((value) => {
+      messageType(friend.username);
+    }, 300),
+    [friend.username, messageType]
+  );
+
+  const onType = useCallback(
+    (value) => {
+      setMessage(value);
+      debouncedType(value);
     },
-    textInput: {
-        flex: 1,
-        paddingHorizontal: 18,
-        borderWidth: 1,
-        borderRadius: 25,
-        borderColor: '#d0d0d0',
-        backgroundColor: 'white',
-        height: 50,
-    },
-    sendButton: { marginHorizontal: 12 },
-    bubbleContainerMe: {
-        flexDirection: 'row',
-        padding: 4,
-        justifyContent: 'flex-end',
-    },
-    bubbleMe: {
-        backgroundColor: '#e1f5fe',
-        borderRadius: 18,
-        maxWidth: '75%',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        justifyContent: 'center',
-        marginRight: 8,
-        minHeight: 42,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 5,
-    },
-    bubbleText: {
-        color: '#303030',
-        fontSize: 16,
-        lineHeight: 18,
-        fontWeight: '500',
-    },
+    [debouncedType]
+  );
+
+  // Actualiza el header con la información del amigo
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => <MessageHeader friend={friend} />,
+    });
+  }, [friend, navigation]);
+
+  // Registro de notificaciones push
+  useEffect(() => {
+    const registerPush = async () => {
+      const token = await registerForPushNotificationsAsync();
+      if (token) {
+        setPushToken(token);
+        console.log('Push token registered:', token);
+      }
+    };
+    registerPush();
+  }, []);
+
+  // Notificación local para mensajes entrantes (para el receptor)
+  useEffect(() => {
+    const newMessage = messagesList?.[0];
+    if (newMessage && !newMessage.is_me) {
+      Notifications.scheduleNotificationAsync({
+        content: {
+          title: friend?.name || 'Nuevo mensaje',
+          body:
+            newMessage.text ||
+            (newMessage.image ? '[Imagen]' : newMessage.audio ? '[Audio]' : ''),
+          data: { messageId: newMessage.id },
+        },
+        trigger: null,
+      });
+    }
+  }, [messagesList, friend]);
+
+  // Envío de mensaje de texto
+  const onSend = useCallback(() => {
+    const cleaned = message.trim();
+    if (!cleaned) return;
+
+    // Enviar mensaje a través del WebSocket
+    messageSend(connectionId, cleaned);
+    // Limpiar campo de entrada
+    setMessage('');
+    // Opcional: desplazar la lista para mostrar el mensaje más reciente
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, [connectionId, message, messageSend]);
+
+  // Envío de imagen
+  const handleImagePick = useCallback(async () => {
+    try {
+      let result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 1,
+        base64: true,
+      });
+      if (!result.canceled && result.assets && result.assets[0].base64) {
+        const base64 = `data:image/jpg;base64,${result.assets[0].base64}`;
+        messageSendImage(connectionId, base64, 'image.jpg');
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+    }
+  }, [connectionId, messageSendImage]);
+
+  // Envío de audio
+  const handleAudioPress = useCallback(async () => {
+    if (isRecording) {
+      const base64 = await stopRecording();
+      if (base64) {
+        messageSendAudio(connectionId, base64, 'audio.m4a');
+      }
+    } else {
+      await startRecording();
+    }
+  }, [isRecording, connectionId, startRecording, stopRecording, messageSendAudio]);
+
+  const openFullScreenImage = useCallback((imageUri) => {
+    setFullScreenImage(imageUri);
+  }, []);
+
+  const closeFullScreenImage = useCallback(() => {
+    setFullScreenImage(null);
+  }, []);
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9F9F9' }}>
+      <View style={{ flex: 1 }}>
+        <FlatList
+          ref={flatListRef}
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={{ paddingTop: 30 }}
+          data={Array.isArray(messagesList) ? messagesList : []}
+          inverted
+          keyExtractor={(item, index) =>
+            item && item.id != null ? item.id.toString() : `item-${index}`
+          }
+          onEndReached={() => {
+            if (messagesNext) messageList(connectionId, messagesNext);
+          }}
+          renderItem={({ item }) => (
+            <MessageBubble
+              message={item}
+              friend={friend}
+              onImagePress={openFullScreenImage}
+            />
+          )}
+        />
+      </View>
+      <MessageInput
+        message={message}
+        setMessage={onType}
+        onSend={onSend}
+        onImage={handleImagePick}
+        onAudio={handleAudioPress}
+        isRecording={isRecording}
+      />
+      {fullScreenImage && (
+        <Modal
+          visible={fullScreenImage !== null}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={closeFullScreenImage}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: '#FFFFFF',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Image
+              style={{ width: '100%', height: '100%', resizeMode: 'contain' }}
+              source={{ uri: fullScreenImage }}
+            />
+          </View>
+        </Modal>
+      )}
+    </SafeAreaView>
+  );
 };
 
-function MessageHeader({ friend }) {
-    return (
-        <View style={styles.header}>
-            <Miniatura url={friend?.miniatura} size={35} />
-            <Text style={styles.headerText}>{friend?.name}</Text>
-        </View>
-    );
-}
-
-function MessageBubbleMe({ text }) {
-    return (
-        <View style={styles.bubbleContainerMe}>
-            <View style={styles.bubbleMe}>
-                <Text style={styles.bubbleText}>{text}</Text>
-            </View>
-        </View>
-    );
-}
-
-function MessageTypingAnimation({ offset }) {
-    const y = useRef(new Animated.Value(0)).current;
-
-    useEffect(() => {
-        const bump = 200;
-        const animation = Animated.loop(
-            Animated.sequence([ 
-                Animated.delay(bump * offset),
-                Animated.timing(y, {
-                    toValue: 1,
-                    duration: bump,
-                    easing: Easing.linear,
-                    useNativeDriver: true,
-                }),
-                Animated.timing(y, {
-                    toValue: 0,
-                    duration: bump,
-                    easing: Easing.linear,
-                    useNativeDriver: true,
-                }),
-                Animated.delay(1000 - bump * 2 - bump * offset),
-            ])
-        );
-
-        animation.start();
-        return () => animation.stop();
-    }, [offset]);
-
-    const translateY = y.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
-
-    return (
-        <Animated.View
-            style={{
-                width: 8,
-                height: 8,
-                marginHorizontal: 1.5,
-                borderRadius: 4,
-                backgroundColor: '#606060',
-                transform: [{ translateY }],
-            }}
-        />
-    );
-}
-
-function MessageBubbleFriend({ text = '', friend, typing = false }) {
-    return (
-        <View style={{ flexDirection: 'row', padding: 4, justifyContent: 'flex-start' }}>
-            <Miniatura url={friend?.miniatura} size={42} />
-            <View style={styles.bubbleMe}>
-                {typing ? (
-                    <View style={{ flexDirection: 'row' }}>
-                        <MessageTypingAnimation offset={0} />
-                        <MessageTypingAnimation offset={1} />
-                        <MessageTypingAnimation offset={2} />
-                    </View>
-                ) : (
-                    <Text style={styles.bubbleText}>{text}</Text>
-                )}
-            </View>
-        </View>
-    );
-}
-
-function MessageBubble({ index, message, friend }) {
-    const [showTyping, setShowTyping] = useState(false);
-
-    const messagesTyping = useGlobal((state) => state.messagesTyping);
-
-    useEffect(() => {
-        if (index !== 0) return;
-        if (messagesTyping === null) {
-            setShowTyping(false);
-            return;
-        }
-        setShowTyping(true);
-        const check = setInterval(() => {
-            const now = new Date();
-            const ms = now - messagesTyping;
-            if (ms > 10000) {
-                setShowTyping(false);
-            }
-        }, 1000);
-        return () => clearInterval(check);
-    }, [index, messagesTyping]);
-
-    if (index === 0) {
-        if (showTyping) return <MessageBubbleFriend friend={friend} typing={true} />;
-        return null;
-    }
-
-    return message.is_me ? (
-        <MessageBubbleMe text={message.text} />
-    ) : (
-        <MessageBubbleFriend text={message.text} friend={friend} />
-    );
-}
-
-function MessageInput({ message, setMessage, onSend }) {
-    return (
-        <View style={styles.messageInputContainer}>
-            <TextInput
-                placeholder="Mensajes..."
-                placeholderTextColor="#909090"
-                value={message}
-                onChangeText={setMessage}
-                style={styles.textInput}
-            />
-            <TouchableOpacity onPress={onSend}>
-                <FontAwesomeIcon icon={faPaperPlane} size={22} color="#303040" style={styles.sendButton} />
-            </TouchableOpacity>
-        </View>
-    );
-}
-
-function MessagesScreen({ navigation, route }) {
-    const [message, setMessage] = useState('');
-    const messagesList = useGlobal((state) => state.messagesList);
-    const messagesNext = useGlobal(state => state.messagesNext)
-
-    const messageList = useGlobal((state) => state.messageList);
-    const messageSend = useGlobal((state) => state.messageSend);
-    const messageType = useGlobal((state) => state.messageType);
-
-    const connectionId = route?.params?.id;
-    const friend = route.params.friend;
-
-    useLayoutEffect(() => {
-        navigation.setOptions({
-            headerTitle: () => <MessageHeader friend={friend} />,
-        });
-    }, [friend, navigation]);
-
-    useEffect(() => {
-        if (connectionId) {
-            messageList(connectionId);
-        }
-    }, [connectionId, messageList]);
-
-    const onSend = useCallback(() => {
-        const cleaned = message.trim();
-        if (!cleaned) return;
-        messageSend(connectionId, cleaned);
-        setMessage('');
-    }, [connectionId, message, messageSend]);
-
-    const onType = useCallback(
-        (value) => {
-            setMessage(value);
-            messageType(friend.username);
-        },
-        [friend.username, messageType]
-    );
-
-    return (
-        <SafeAreaView style={styles.container}>
-            <View style={styles.container}>
-                <FlatList
-                    automaticallyAdjustKeyboardInsets
-                    contentContainerStyle={{ paddingTop: 30 }}
-                    data={messagesList && Array.isArray(messagesList) ? [{ id: -1 }, ...messagesList] : []}
-                    inverted
-                    keyExtractor={(item) => item?.id?.toString() || item?.id}
-                    onEndReached={() => {
-                        if (messagesNext) {
-                            messageList(connectionId, messagesNext)
-                        }
-                    }}
-                    renderItem={({ item, index }) => {
-                        if (!item || typeof item !== 'object') {
-                            console.warn(`Invalid item at index ${index}:`, item);
-                            return null;
-                        }
-                        return <MessageBubble index={index} message={item} friend={friend} />;
-                    }}
-                />
-            </View>
-
-            <MessageInput message={message} setMessage={onType} onSend={onSend} />
-        </SafeAreaView>
-    );
-}
-
 export default MessagesScreen;
-
-
 
 

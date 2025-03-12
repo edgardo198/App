@@ -11,6 +11,7 @@ import RequestScreen from './Requests';
 import FriendsScreen from './Friends';
 import ProfileScreen from './Profile';
 
+
 const Tab = createBottomTabNavigator();
 
 const icons = {
