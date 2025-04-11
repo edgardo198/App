@@ -1,7 +1,7 @@
-import React, { useMemo, useRef, useEffect } from 'react';
-import { ActivityIndicator, FlatList, View, Text, TouchableOpacity, StyleSheet, Animated, Image } from 'react-native';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, View, Text, TouchableOpacity, StyleSheet, Animated, Image, Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { Audio } from 'expo-av';
+import { Audio, Video } from 'expo-av';
 import Cell from '../common/Cell';
 import Empty from '../common/Empty';
 import useGlobal from '../core/global';
@@ -13,17 +13,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: 76,
     height: 76,
-  },
-  alertIndicator: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: 'green',
-    borderWidth: 1,
-    borderColor: 'white',
   },
   unreadBadge: {
     position: 'absolute',
@@ -71,10 +60,69 @@ const styles = StyleSheet.create({
 const FriendRow = React.memo(
   ({ item }) => {
     const navigation = useNavigation();
+    const currentUser = useGlobal((state) => state.user);
     const blinkAnim = useRef(new Animated.Value(1)).current;
+    const { friend, message, unreadCount, updated, preview, isNew } = item;
+    
+    const [currentPreview, setCurrentPreview] = useState(preview);
+
+    // Depuración: imprime el valor de message.is_me
+    console.log('DEBUG - message.is_me:', message?.is_me);
 
     useEffect(() => {
-      if (item.unreadCount > 0) {
+      if (message) {
+        if (message.type === 'image' && message.content) {
+          setCurrentPreview(
+            <Image source={{ uri: message.content }} style={styles.mediaPreview} />
+          );
+        } else if (message.type === 'audio' && message.content) {
+          setCurrentPreview(
+            <TouchableOpacity
+              onPress={async () => {
+                try {
+                  const { sound } = await Audio.Sound.createAsync({ uri: message.content });
+                  await sound.playAsync();
+                } catch (error) {
+                  console.log('Error al reproducir audio:', error);
+                }
+              }}
+            >
+              <Text style={styles.previewText}>🎵 Mensaje de voz</Text>
+            </TouchableOpacity>
+          );
+        } else if (message.type === 'video' && message.content) {
+          setCurrentPreview(
+            <Video
+              source={{ uri: message.content }}
+              style={styles.mediaPreview}
+              useNativeControls
+              resizeMode="cover"
+              isLooping
+            />
+          );
+        } else if (message.type === 'document' && message.content) {
+          setCurrentPreview(
+            <TouchableOpacity
+              onPress={async () => {
+                try {
+                  // Abre el documento en el navegador o en la aplicación predeterminada
+                  await Linking.openURL(message.content);
+                } catch (error) {
+                  console.log('Error al abrir el documento:', error);
+                }
+              }}
+            >
+              <Text style={styles.previewText}>📄 Documento</Text>
+            </TouchableOpacity>
+          );
+        } else {
+          setCurrentPreview(message.text || preview);
+        }
+      }
+    }, [message?.content, message?.type]);
+
+    useEffect(() => {
+      if (unreadCount > 0) {
         Animated.loop(
           Animated.sequence([
             Animated.timing(blinkAnim, {
@@ -92,41 +140,11 @@ const FriendRow = React.memo(
       } else {
         blinkAnim.setValue(1);
       }
-    }, [item.unreadCount, blinkAnim]);
+    }, [unreadCount]);
 
     const handlePress = () => {
-      useGlobal.getState().markFriendAsRead(item.friend.username);
+      useGlobal.getState().markFriendAsRead(friend.username);
       navigation.navigate('Messages', item);
-    };
-
-    const renderMessageContent = () => {
-      const { message, preview } = item;
-      if (!message) return <Text style={styles.previewText}>{preview}</Text>;
-      switch (message.type) {
-        case 'text':
-          return <Text style={styles.previewText}>{message.text || preview}</Text>;
-        case 'image':
-          return message.content ? (
-            <Image source={{ uri: message.content }} style={styles.mediaPreview} />
-          ) : null;
-        case 'audio':
-          return message.content ? (
-            <TouchableOpacity
-              onPress={async () => {
-                try {
-                  const { sound } = await Audio.Sound.createAsync({ uri: message.content });
-                  await sound.playAsync();
-                } catch (error) {
-                  console.log('Error al reproducir audio:', error);
-                }
-              }}
-            >
-              <Text style={styles.previewText}>🎵 Mensaje de voz</Text>
-            </TouchableOpacity>
-          ) : null;
-        default:
-          return <Text style={styles.previewText}>{preview}</Text>;
-      }
     };
 
     return (
@@ -134,18 +152,21 @@ const FriendRow = React.memo(
         <Cell>
           <View style={{ flexDirection: 'row', alignItems: 'center', padding: 10 }}>
             <View style={styles.miniaturaContainer}>
-              <Miniatura url={item.friend.miniatura} size={76} />
-              
-              {item.unreadCount > 0 && (
+              <Miniatura url={friend.miniatura} size={76} />
+              {message && !message.is_me && isNew && (
                 <Animated.View style={[styles.unreadBadge, { opacity: blinkAnim }]}>
-                  <Text style={styles.unreadText}>{item.unreadCount}</Text>
+                  <Text style={styles.unreadText}>{unreadCount}</Text>
                 </Animated.View>
               )}
             </View>
             <View style={styles.textContainer}>
-              <Text style={styles.nameText}>{item.friend.name}</Text>
-              {renderMessageContent()}
-              <Text style={styles.timeText}>{formatTime(item.updated)}</Text>
+              <Text style={styles.nameText}>{friend.name}</Text>
+              {typeof currentPreview === 'string' ? (
+                <Text style={styles.previewText}>{currentPreview}</Text>
+              ) : (
+                currentPreview
+              )}
+              <Text style={styles.timeText}>{formatTime(updated)}</Text>
             </View>
           </View>
         </Cell>
@@ -153,26 +174,24 @@ const FriendRow = React.memo(
     );
   },
   (prev, next) =>
-    prev.item.updated === next.item.updated &&
-    prev.item.preview === next.item.preview &&
-    prev.item.friend.miniatura === next.item.friend.miniatura &&
-    prev.item.friend.name === next.item.friend.name &&
-    prev.item.unreadCount === next.item.unreadCount &&
-    prev.item.isNew === next.item.isNew
+    prev.item?.updated === next.item?.updated &&
+    prev.item?.preview === next.item?.preview &&
+    prev.item?.message?.content === next.item?.message?.content &&
+    prev.item?.friend?.miniatura === next.item?.friend?.miniatura &&
+    prev.item?.friend?.name === next.item?.friend?.name &&
+    prev.item?.unreadCount === next.item?.unreadCount &&
+    prev.item?.isNew === next.item?.isNew
 );
 
 function FriendsScreen() {
   const friendList = useGlobal((state) => state.friendList);
-  const memoizedFriendList = useMemo(() => friendList, [friendList]);
+  const memoizedFriendList = useMemo(() => friendList.map(friend => ({ ...friend })), [friendList]);
 
   if (friendList === null) return <ActivityIndicator style={{ flex: 1 }} />;
   if (friendList.length === 0) return <Empty icon="inbox" message="Sin mensajes" />;
 
-  // Genera una key única combinando un identificador único y el índice
-  const keyExtractor = (item, index) => {
-    const uniqueId = item.friend.id || item.friend.username || `unknown-${index}`;
-    return `${uniqueId}-${index}`;
-  };
+  const keyExtractor = (item, index) =>
+    item.id ? `${item.id}` : `${item.friend.username}-${index}`;
 
   return (
     <View style={{ flex: 1 }}>
@@ -189,14 +208,5 @@ function FriendsScreen() {
 }
 
 export default FriendsScreen;
-
-
-
-
-
-
-
-
-
 
 

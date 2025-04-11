@@ -56,6 +56,34 @@ function getAudio(url) {
 }
 
 /**
+ * Devuelve un objeto source para el video obtenido del servidor.
+ * Si no se pasa URL, retorna null.
+ */
+function getVideo(url) {
+  if (!url) {
+    return null;
+  }
+  if (url.startsWith('http')) {
+    return { uri: url };
+  }
+  return { uri: 'http://' + ADDRESS + url };
+}
+
+/**
+ * Devuelve un objeto source para el documento obtenido del servidor.
+ * Si no se pasa URL, retorna null.
+ */
+function getDocument(url) {
+  if (!url) {
+    return null;
+  }
+  if (url.startsWith('http')) {
+    return { uri: url };
+  }
+  return { uri: 'http://' + ADDRESS + url };
+}
+
+/**
  * Recibe una fecha y retorna una cadena formateada según el tiempo transcurrido.
  */
 function formatTime(data) {
@@ -88,7 +116,8 @@ function formatTime(data) {
   return ` ${y}a`;
 }
 
-export { log, miniatura, formatTime, getImage, getAudio };
+export { log, miniatura, formatTime, getImage, getAudio, getVideo, getDocument };
+
 
 
 

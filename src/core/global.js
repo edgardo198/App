@@ -2,12 +2,11 @@ import { create } from 'zustand';
 import { ADDRESS } from './api';
 import secure from './secure';
 import api from './api';
-import { log, getImage, getAudio } from './utils';
+import { log, getImage, getAudio, getVideo, getDocument } from './utils';
+import { FlatList } from 'react-native';
+import axios from 'axios';
 
-const SOURCES = {
-  MINIATURA: 'miniatura',
-};
-
+// Definición de funciones auxiliares y de respuesta
 function responseFriendList(set, get, friendList) {
   set(() => ({
     friendList: Array.isArray(friendList) ? friendList : [],
@@ -26,21 +25,28 @@ function responseMessageList(set, get, data) {
   const processedMessages = messages.map((message) => {
     if (message.image) {
       const imgSource = getImage(message.image);
-      if (imgSource.uri) {
-        message.image = imgSource.uri;
-      }
+      message.image = imgSource.uri;
     }
     if (message.audio) {
       const audioSource = getAudio(message.audio);
-      if (audioSource.uri) {
-        message.audio = audioSource.uri;
-      }
+      message.audio = audioSource.uri;
+    }
+    // Añadir procesamiento para video y documento
+    if (message.video) {
+      const videoSource = getVideo(message.video);
+      message.video = videoSource.uri;
+    }
+    if (message.document) {
+      const documentSource = getDocument(message.document);
+      message.document = documentSource.uri;
     }
     return message;
   });
-  const messagesList = Array.isArray(get().messagesList)
+  
+  const messagesList = Array.isArray(get().messagesList) 
     ? [...get().messagesList, ...processedMessages]
     : processedMessages;
+  
   set(() => ({
     messagesList,
     messagesNext: data.next,
@@ -48,25 +54,83 @@ function responseMessageList(set, get, data) {
   }));
 }
 
-function updateFriendPreview(set, get, username, preview, created) {
-  const friendList = [...get().friendList];
-  const friendIndex = friendList.findIndex(
-    (item) => item.friend.username === username
-  );
-  if (friendIndex >= 0) {
-    const item = { ...friendList[friendIndex] };
-    item.preview = preview;
-    item.updated = created;  // Se usa "updated" en lugar de "update"
-    item.unreadCount = (item.unreadCount || 0) + 1;
-    item.isNew = true;  // Marca este chat como nuevo
-    // Remueve el elemento y lo agrega al inicio para tener los chats con actividad reciente arriba
-    friendList.splice(friendIndex, 1);
-    friendList.unshift(item);
-    set(() => ({ friendList }));
+// Definición de updateFriendPreview como función de la tienda
+const updateFriendPreview = (set, get, username, preview, created, is_me, type = 'text', content = null) => {
+  if (!username) {
+    console.warn("WARNING: Username es inválido o undefined");
+    return;
   }
-}
+  
+  const friendList = get().friendList;
+  if (!Array.isArray(friendList)) return;
+  
+  // Normalizamos el username para evitar problemas de mayúsculas/minúsculas.
+  const normalizedUsername = username.trim().toLowerCase();
+  
+  // Buscamos el ítem existente en la friendList con comparación exacta.
+  let friendIndex = friendList.findIndex(
+    (item) =>
+      item.friend &&
+      item.friend.username &&
+      item.friend.username.trim().toLowerCase() === normalizedUsername
+  );
+  
+  // Si no se encuentra, intentamos una búsqueda parcial.
+  if (friendIndex === -1) {
+    console.warn(`[updateFriendPreview] WARNING: No se encontró el amigo ${username} con comparación exacta. Intentando búsqueda parcial.`);
+    friendIndex = friendList.findIndex(
+      (item) =>
+        item.friend &&
+        item.friend.username &&
+        item.friend.username.toLowerCase().includes(normalizedUsername)
+    );
+  }
+  
+  // Definimos el preview según el tipo.
+  let fixedPreview;
+  if (type === "text") {
+    fixedPreview = preview;
+  } else if (type === "image") {
+    fixedPreview = "[Imagen]";
+  } else if (type === "audio") {
+    fixedPreview = "[Audio]";
+  } else if (type === "video") {
+    fixedPreview = "[Video]";
+  } else if (type === "document") {
+    fixedPreview = "[Documento]";
+  } else {
+    fixedPreview = "[Mensaje]";
+  }
+  
+  const item = friendList[friendIndex];
+  
+  let updatedItem;
+  if (is_me) {
+    updatedItem = {
+      ...item,
+      updated: created,
+      preview: fixedPreview,
+      message: { type, content, text: fixedPreview, is_me }
+    };
+  } else {
+    // Para mensajes recibidos (is_me false): se incrementa el contador y se actualiza el preview.
+    const newCount = (item.unreadCount || 0) + 1;
+    updatedItem = {
+      ...item,
+      updated: created,
+      isNew: true,
+      preview: fixedPreview,
+      unreadCount: newCount,
+      message: { type, content, text: fixedPreview, is_me }
+    };
+  }
+  
+  const newFriendList = [...friendList];
+  newFriendList[friendIndex] = updatedItem;
+  set({ friendList: newFriendList });
+};
 
-// Función auxiliar para marcar como leído
+// Mueve la definición de markFriendAsReadFn ANTES de la creación del store
 function markFriendAsReadFn(set, get, username) {
   const updatedList = get().friendList.map(item =>
     item.friend.username === username
@@ -76,55 +140,152 @@ function markFriendAsReadFn(set, get, username) {
   set({ friendList: updatedList });
 }
 
+function responseMessageSendCommon(set, get, data, typeOverride = null) {
+  const currentUser = get().user;
+  if (!data?.message) {
+    console.warn("WARNING: data.message no está definido.");
+    return;
+  }
+
+  let sender, receiver;
+
+  // Intentamos usar sender y receiver si vienen en el payload.
+  if (data.sender && data.receiver) {
+    sender = typeof data.sender === "string" ? { username: data.sender } : data.sender;
+    receiver = typeof data.receiver === "string" ? { username: data.receiver } : data.receiver;
+  } else if (data.friend) {
+    console.warn("WARNING: Sender o receiver no están definidos en el payload. Usando data.friend como fallback.");
+    const fallbackFriendUsername =
+      typeof data.friend === "string"
+        ? data.friend.trim()
+        : (data.friend?.username || "").trim();
+    if (!fallbackFriendUsername) {
+      console.warn("WARNING: data.friend está vacío.");
+      return;
+    }
+    if (fallbackFriendUsername.toLowerCase() === currentUser.username.trim().toLowerCase()) {
+      console.warn("WARNING: data.friend es igual al usuario actual. No se puede determinar la contraparte.");
+      return;
+    }
+    if (typeof data.message.is_me === "boolean") {
+      if (data.message.is_me === true) {
+        sender = currentUser;
+        receiver = { username: fallbackFriendUsername };
+      } else {
+        sender = { username: fallbackFriendUsername };
+        receiver = currentUser;
+      }
+    } else {
+      sender = currentUser;
+      receiver = { username: fallbackFriendUsername };
+    }
+  } else {
+    console.warn("WARNING: Sender o receiver no están definidos en el payload");
+    return;
+  }
+
+  const currentName = currentUser.username.trim().toLowerCase();
+  const senderName = sender.username.trim().toLowerCase();
+  const receiverName = receiver.username.trim().toLowerCase();
+
+  let friendUsername = "";
+  if (currentName === senderName && currentName !== receiverName) {
+    friendUsername = receiver.username;
+  } else if (currentName === receiverName && currentName !== senderName) {
+    friendUsername = sender.username;
+  } else {
+    friendUsername = data.friend
+      ? (typeof data.friend === "string" ? data.friend : data.friend.username)
+      : "";
+    if (!friendUsername || friendUsername.trim().toLowerCase() === currentName) {
+      console.warn("WARNING: No se pudo determinar correctamente la contraparte (friend).");
+      return;
+    }
+  }
+
+  if (!friendUsername) {
+    console.warn("WARNING: No se pudo extraer el username del friend correctamente");
+    return;
+  }
+
+  const isMe = currentName === senderName;
+
+  // Usamos typeOverride si se proporciona; sino, usamos data.message.type.
+  const finalType = typeOverride || data.message.type;
+  let processedMessage = { ...data.message, type: finalType };
+
+  // Procesamos multimedia: para imagen, audio, video y documento.
+  if (finalType === "image" && processedMessage.image) {
+    const imgSource = getImage(processedMessage.image);
+    if (imgSource?.uri) {
+      processedMessage.image = imgSource.uri;
+    }
+  } else if (finalType === "audio" && processedMessage.audio) {
+    const audioSource = getAudio(processedMessage.audio);
+    if (audioSource?.uri) {
+      processedMessage.audio = audioSource.uri;
+    }
+  } else if (finalType === "video" && processedMessage.video) {
+    // Suponemos que dispones de una función getVideo similar a getImage/getAudio.
+    const videoSource = typeof getVideo === "function" ? getVideo(processedMessage.video) : null;
+    if (videoSource?.uri) {
+      processedMessage.video = videoSource.uri;
+    }
+  } else if (finalType === "document" && processedMessage.document) {
+    // Para documentos, podrías simplemente dejar la URL o procesarla si es necesario.
+    const documentSource = typeof getDocument === "function" ? getDocument(processedMessage.document) : null;
+    if (documentSource?.uri) {
+      processedMessage.document = documentSource.uri;
+    }
+  }
+
+  const previewText =
+    finalType === "text" ? (processedMessage.text || "") :
+    finalType === "image" ? "[Imagen]" :
+    finalType === "audio" ? "[Audio]" :
+    finalType === "video" ? "[Video]" :
+    finalType === "document" ? "[Documento]" :
+    "[Mensaje]";
+
+  const contentValue =
+    finalType === "text" ? processedMessage.text :
+    finalType === "image" ? processedMessage.image :
+    finalType === "audio" ? processedMessage.audio :
+    finalType === "video" ? processedMessage.video :
+    finalType === "document" ? processedMessage.document : null;
+
+  updateFriendPreview(set, get, friendUsername, previewText, processedMessage.created, isMe, finalType, contentValue);
+
+  set({ messagesList: [processedMessage, ...get().messagesList], messagesTyping: null });
+}
+
+
+// Función para mensajes de texto.
+// Función para mensajes de texto.
 function responseMessageSend(set, get, data) {
-  const username = data.friend.username;
-  if (data.message.isNew) {
-    updateFriendPreview(set, get, username, data.message.text, data.message.created);
-  }
-  const messagesList = [data.message, ...get().messagesList];
-  set(() => ({
-    messagesList,
-    messagesTyping: null,
-  }));
+  responseMessageSendCommon(set, get, data);
 }
 
+// Función para mensajes con imagen.
 function responseMessageSendImage(set, get, data) {
-  const username = data.friend.username;
-  if (data.message.isNew) {
-    updateFriendPreview(set, get, username, '[Imagen]', data.message.created);
-  }
-  let message = data.message;
-  if (message.image) {
-    const imgSource = getImage(message.image);
-    if (imgSource.uri) {
-      message.image = imgSource.uri;
-    }
-  }
-  const messagesList = [message, ...get().messagesList];
-  set(() => ({
-    messagesList,
-    messagesTyping: null,
-  }));
+  responseMessageSendCommon(set, get, data, "image");
 }
 
+// Función para mensajes con audio.
 function responseMessageSendAudio(set, get, data) {
-  const username = data.friend.username;
-  if (data.message.isNew) {
-    updateFriendPreview(set, get, username, '[Audio]', data.message.created);
-  }
-  let message = data.message;
-  if (message.audio) {
-    const audioSource = getAudio(message.audio);
-    if (audioSource.uri) {
-      message.audio = audioSource.uri;
-    }
-  }
-  const messagesList = [message, ...get().messagesList];
-  set(() => ({
-    messagesList,
-    messagesTyping: null,
-  }));
+  responseMessageSendCommon(set, get, data, "audio");
 }
+
+// Función para mensajes con video.
+function responseMessageSendVideo(set, get, data) {
+  responseMessageSendCommon(set, get, data, "video");
+}
+
+// Función para mensajes con documentos.
+function responseMessageSendDocument(set, get, data) {
+  responseMessageSendCommon(set, get, data, "document");
+}
+
 
 function responseMessageType(set, get, data) {
   set(() => ({
@@ -204,6 +365,7 @@ function responseMiniatura(set, get, data) {
   }));
 }
 
+// Creación del store con Zustand
 const useGlobal = create((set, get) => ({
   initialized: false,
   authenticated: false,
@@ -257,7 +419,6 @@ const useGlobal = create((set, get) => ({
       const protocol = ADDRESS.startsWith('https') ? 'wss' : 'ws';
       const socket = new WebSocket(`${protocol}://${ADDRESS}/ws/chat/?token=${tokens.access}`);
       socket.onopen = () => {
-        log('socket.onopen');
         socket.send(JSON.stringify({ source: 'request.list' }));
         set({ socketConnected: true });
         socket.send(JSON.stringify({ source: 'friend.list' }));
@@ -271,6 +432,8 @@ const useGlobal = create((set, get) => ({
           'message.send': responseMessageSend,
           'message.send_image': responseMessageSendImage,
           'message.send_audio': responseMessageSendAudio,
+          'message.send_video': responseMessageSendVideo,       
+          'message.send_document': responseMessageSendDocument,
           'message.type': responseMessageType,
           'request.accept': responseRequestAccept,
           'request.connect': responseRequestConnect,
@@ -374,6 +537,37 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
+  // Cambiar a HTTP para archivos grandes
+  messageSendVideo: (connectionId, base64, filename) => {
+    const socket = get().socket;
+    if (socket?.readyState === WebSocket.OPEN) {
+      // Extraemos solo la parte base64 sin el encabezado
+      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+      socket.send(
+        JSON.stringify({
+          source: 'message.send_video',
+          connectionId,
+          base64: base64Data,
+          filename,
+        })
+      );
+    }
+  },
+  messageSendDocument: (connectionId, base64, filename) => {
+    const socket = get().socket;
+    if (socket?.readyState === WebSocket.OPEN) {
+      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+      socket.send(
+        JSON.stringify({
+          source: 'message.send_document',
+          connectionId,
+          base64: base64Data,
+          filename,
+        })
+      );
+    }
+  },
+  
   messageType: (username) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {

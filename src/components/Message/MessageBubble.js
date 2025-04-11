@@ -1,4 +1,5 @@
 import React, { useEffect, useState, memo } from 'react';
+import { View, TextInput, TouchableOpacity, Text } from 'react-native';
 import MessageBubbleMe from './MessageBubbleMe';
 import MessageBubbleFriend from './MessageBubbleFriend';
 import useGlobal from '../../core/global';
@@ -14,14 +15,10 @@ const MessageBubble = memo(({ index, message, friend, onImagePress }) => {
       return;
     }
     setShowTyping(true);
-    const check = setInterval(() => {
-      const now = new Date();
-      const ms = now - messagesTyping;
-      if (ms > 1000) {
-        setShowTyping(false);
-      }
+    const timeout = setTimeout(() => {
+      setShowTyping(false);
     }, 1000);
-    return () => clearInterval(check);
+    return () => clearTimeout(timeout);
   }, [index, messagesTyping]);
 
   if (index === 0 && showTyping)

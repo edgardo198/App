@@ -1,29 +1,28 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useEffect, useState, memo, useCallback } from 'react';
 import {
   TouchableOpacity,
   View,
   ActivityIndicator,
-  Image,
   StyleSheet,
   Text,
+  Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import ImageViewing from 'react-native-image-viewing';
+import { Image as ExpoImage } from 'expo-image';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { Ionicons } from '@expo/vector-icons';
-import ImageViewing from 'react-native-image-viewing';
 
 const IMAGE_SIZE = 200;
 const BORDER_RADIUS = 10;
 const BACKGROUND_COLOR = '#e0e0e0';
 const SPINNER_COLOR = '#303040';
 
-// Función auxiliar para validar y construir una URL completa
 const getValidUrl = (url) => {
   if (!url) return null;
   if (url.startsWith('http')) return url;
-  // Ajusta la URL base a la de tu servidor
-  const serverUrl = 'http://192.168.0.111:8000';
+  const serverUrl = 'http://127.0.0.1:8000';
   return serverUrl + url;
 };
 
@@ -34,78 +33,81 @@ const MessageImage = memo(({ message = {} }) => {
   const [hasError, setHasError] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
 
-  useEffect(() => {
-    const downloadImage = async () => {
-      if (!message.image) return;
+  const downloadImage = useCallback(async () => {
+    if (!message.image) return;
+    try {
+      const validUrl = getValidUrl(message.image);
+      if (!validUrl) throw new Error('URL inválida');
 
-      try {
-        // Validamos la URL para asegurarnos de que tenga un esquema (http://)
-        const validUrl = getValidUrl(message.image);
-        if (!validUrl) {
-          throw new Error('URL de imagen inválida');
-        }
-        const fileUri = FileSystem.cacheDirectory + `${message.id}.jpg`;
-        const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      const urlParts = validUrl.split('.');
+      const originalExtension = urlParts.pop().toLowerCase();
+      const isAnimated = originalExtension === 'gif';
 
-        if (fileInfo.exists) {
-          console.log('Usando imagen en caché...');
-          setImageUri(fileUri);
-          return;
-        }
+      const fileUri = `${FileSystem.cacheDirectory}${message.id}.${originalExtension}`;
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
 
-        console.log('Descargando imagen...');
-        const downloadResumable = FileSystem.createDownloadResumable(
-          validUrl,
-          fileUri
-        );
-        const { uri } = await downloadResumable.downloadAsync();
+      if (fileInfo.exists) {
+        setImageUri(fileUri);
+        return;
+      }
 
+      const downloadResumable = FileSystem.createDownloadResumable(validUrl, fileUri);
+      const { uri } = await downloadResumable.downloadAsync();
+
+      if (!isAnimated) {
         const optimizedImage = await ImageManipulator.manipulateAsync(
           uri,
           [{ resize: { width: 800 } }],
           { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG }
         );
-
         await FileSystem.moveAsync({ from: optimizedImage.uri, to: fileUri });
-        setImageUri(fileUri);
-      } catch (error) {
-        console.error('Error descargando la imagen:', error);
-        setHasError(true);
       }
-    };
-
-    downloadImage();
+      setImageUri(fileUri);
+    } catch (error) {
+      console.error('Error al cargar imagen:', error);
+      setHasError(true);
+    }
   }, [message.image, message.id]);
 
-  const handleDownload = async () => {
+  useEffect(() => {
+    downloadImage();
+  }, [downloadImage]);
+
+  const handleDownload = useCallback(async () => {
     if (!imageUri) return;
-    
     try {
       setDownloadLoading(true);
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') throw new Error('Permiso denegado.');
+      if (status !== 'granted')
+        throw new Error('Permiso requerido para guardar la imagen');
 
       await MediaLibrary.saveToLibraryAsync(imageUri);
-      alert('Imagen guardada en galería!');
+      Alert.alert('Éxito', 'Imagen guardada en la galería');
     } catch (error) {
-      alert(error.message || 'Error al descargar la imagen.');
+      Alert.alert('Error', error.message || 'Error al guardar imagen');
     } finally {
       setDownloadLoading(false);
     }
-  };
+  }, [imageUri]);
 
   return (
     <View style={styles.wrapper}>
+      {/* Miniatura con animación de aparición */}
       <TouchableOpacity onPress={() => setIsVisible(true)}>
         <View style={styles.container}>
-          {!loaded && !hasError && <ActivityIndicator size="small" color={SPINNER_COLOR} />}
-          {hasError && <Text style={styles.errorText}>Error al cargar imagen</Text>}
+          {!loaded && !hasError && (
+            <ActivityIndicator size="small" color={SPINNER_COLOR} />
+          )}
+          {hasError && (
+            <Text style={styles.errorText}>Error al cargar imagen</Text>
+          )}
           {imageUri && (
-            <Image
+            <ExpoImage
               style={styles.image}
               source={{ uri: imageUri }}
-              resizeMode="cover"
-              onLoadEnd={() => setLoaded(true)}
+              contentFit="cover" // Equivalente a resizeMode="cover"
+              transition={1000}  // Animación fade-in de 1 segundo en miniatura
+              onLoad={() => setLoaded(true)}
               onError={() => {
                 setHasError(true);
                 setLoaded(true);
@@ -127,19 +129,24 @@ const MessageImage = memo(({ message = {} }) => {
           )}
         </View>
       </TouchableOpacity>
-
+      
+      {/* Vista en grande con animación fade */}
       <ImageViewing
         images={[{ uri: imageUri }]}
         imageIndex={0}
         visible={isVisible}
         onRequestClose={() => setIsVisible(false)}
+        animationType="fade" // Animación fade al desplegar la imagen en grande
       />
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  wrapper: { alignItems: 'center', margin: 10 },
+  wrapper: {
+    alignItems: 'center',
+    margin: 10,
+  },
   container: {
     width: IMAGE_SIZE,
     height: IMAGE_SIZE,
@@ -150,8 +157,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
-  image: { width: IMAGE_SIZE, height: IMAGE_SIZE, borderRadius: BORDER_RADIUS, position: 'absolute' },
-  errorText: { color: 'red' },
+  image: {
+    width: IMAGE_SIZE,
+    height: IMAGE_SIZE,
+    borderRadius: BORDER_RADIUS,
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 12,
+  },
   downloadIconContainer: {
     position: 'absolute',
     top: 5,
@@ -163,9 +177,6 @@ const styles = StyleSheet.create({
 });
 
 export default MessageImage;
-
-
-
 
 
 
