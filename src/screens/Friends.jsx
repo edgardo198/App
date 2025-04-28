@@ -184,14 +184,16 @@ const FriendRow = React.memo(
 );
 
 function FriendsScreen() {
-  const friendList = useGlobal((state) => state.friendList);
+  const friendList = useGlobal((state) => state.friendList) || [];
   const memoizedFriendList = useMemo(() => friendList.map(friend => ({ ...friend })), [friendList]);
 
   if (friendList === null) return <ActivityIndicator style={{ flex: 1 }} />;
   if (friendList.length === 0) return <Empty icon="inbox" message="Sin mensajes" />;
 
-  const keyExtractor = (item, index) =>
-    item.id ? `${item.id}` : `${item.friend.username}-${index}`;
+  const keyExtractor = (item) => {
+    // Solución definitiva usando identificadores únicos compuestos
+    return `${item.friend.username}-${item.updated}`;
+  };
 
   return (
     <View style={{ flex: 1 }}>

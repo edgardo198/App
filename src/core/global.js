@@ -407,6 +407,10 @@ const useGlobal = create((set, get) => ({
     set({
       authenticated: false,
       user: {},
+      friendList: [],
+      searchList: [],
+      requestList: [],
+      messagesList: [],
       initialized: true,
     });
   },
