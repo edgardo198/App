@@ -13,9 +13,6 @@ import {
   Keyboard
 } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
 import debounce from 'lodash/debounce';
 import MessageInput from '../components/Message/MessageInput';
 import MessageBubble from '../components/Message/MessageBubble';
@@ -34,10 +31,6 @@ const MessagesScreen = ({ navigation, route }) => {
     messagesNext,
     messageList,
     messageSend,
-    messageSendImage,
-    messageSendAudio,
-    messageSendVideo,
-    messageSendDocument,
     messageType,
     clearMessages,
   } = useGlobal((state) => state);
@@ -95,14 +88,11 @@ const MessagesScreen = ({ navigation, route }) => {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, [connectionId, message, messageSend]);
 
-  // Media pickers omitted for brevity: image, video, document, audio handlers...
-
   const openFullScreenImage = useCallback((uri) => setFullScreenImage(uri), []);
   const closeFullScreenImage = useCallback(() => setFullScreenImage(null), []);
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header moved lower */}
       <View style={styles.customHeader}>
         <Miniatura url={friend?.miniatura} size={42} />
         <Text style={styles.headerText}>{friend?.name}</Text>
@@ -120,9 +110,8 @@ const MessagesScreen = ({ navigation, route }) => {
               data={Array.isArray(messagesList) ? messagesList : []}
               inverted
               contentContainerStyle={styles.messageList}
-              keyExtractor={(item, i) =>
-                item.id ? item.id.toString() : `msg-${i}`
-              }
+              // Uso solo del índice para keyExtractor garantiza unicidad
+              keyExtractor={(_, index) => index.toString()}
               onEndReached={() => messagesNext && messageList(connectionId, messagesNext)}
               renderItem={({ item }) => (
                 <MessageBubble
@@ -133,7 +122,6 @@ const MessagesScreen = ({ navigation, route }) => {
               )}
             />
 
-            {/* Input container moved up */}
             <View style={styles.inputContainer}>
               <MessageInput
                 message={message}
@@ -144,6 +132,8 @@ const MessagesScreen = ({ navigation, route }) => {
                 onVideo={() => {}}
                 onDocument={() => {}}
                 isRecording={isRecording}
+                startRecording={startRecording}
+                stopRecording={stopRecording}
               />
             </View>
 
@@ -172,7 +162,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
-    // Desplaza hacia abajo
     marginTop: 20,
   },
   headerText: { marginLeft: 12, fontSize: 20, fontWeight: '600', color: '#333' },
@@ -185,14 +174,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingVertical: 10,
     paddingHorizontal: 12,
-    // Eleva un poco sobre el borde inferior
     marginBottom: Platform.OS === 'ios' ? 10 : 5,
   },
-  fullScreenContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
   fullScreenImage: { width: '100%', height: '100%', resizeMode: 'contain' },
 });
 
 export default MessagesScreen;
+
 
 
 
