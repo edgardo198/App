@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, View, Text, TouchableOpacity, StyleSheet, Animated, Image, Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Audio, Video } from 'expo-av';
@@ -60,66 +60,73 @@ const styles = StyleSheet.create({
 const FriendRow = React.memo(
   ({ item }) => {
     const navigation = useNavigation();
-    const currentUser = useGlobal((state) => state.user);
     const blinkAnim = useRef(new Animated.Value(1)).current;
     const { friend, message, unreadCount, updated, preview, isNew } = item;
-    
     const [currentPreview, setCurrentPreview] = useState(preview);
 
-    // Depuración: imprime el valor de message.is_me
-    console.log('DEBUG - message.is_me:', message?.is_me);
-
     useEffect(() => {
-      if (message) {
-        if (message.type === 'image' && message.content) {
-          setCurrentPreview(
-            <Image source={{ uri: message.content }} style={styles.mediaPreview} />
-          );
-        } else if (message.type === 'audio' && message.content) {
-          setCurrentPreview(
-            <TouchableOpacity
-              onPress={async () => {
-                try {
-                  const { sound } = await Audio.Sound.createAsync({ uri: message.content });
-                  await sound.playAsync();
-                } catch (error) {
-                  console.log('Error al reproducir audio:', error);
-                }
-              }}
-            >
-              <Text style={styles.previewText}>🎵 Mensaje de voz</Text>
-            </TouchableOpacity>
-          );
-        } else if (message.type === 'video' && message.content) {
-          setCurrentPreview(
-            <Video
-              source={{ uri: message.content }}
-              style={styles.mediaPreview}
-              useNativeControls
-              resizeMode="cover"
-              isLooping
-            />
-          );
-        } else if (message.type === 'document' && message.content) {
-          setCurrentPreview(
-            <TouchableOpacity
-              onPress={async () => {
-                try {
-                  // Abre el documento en el navegador o en la aplicación predeterminada
-                  await Linking.openURL(message.content);
-                } catch (error) {
-                  console.log('Error al abrir el documento:', error);
-                }
-              }}
-            >
-              <Text style={styles.previewText}>📄 Documento</Text>
-            </TouchableOpacity>
-          );
-        } else {
+      if (!message) return;
+
+      switch (message.type) {
+        case 'image':
+          if (message.content) {
+            setCurrentPreview(
+              <Image source={{ uri: message.content }} style={styles.mediaPreview} />
+            );
+          }
+          break;
+        case 'audio':
+          if (message.content) {
+            setCurrentPreview(
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    const { sound } = await Audio.Sound.createAsync({ uri: message.content });
+                    await sound.playAsync();
+                  } catch (error) {
+                    console.log('Error al reproducir audio:', error);
+                  }
+                }}
+              >
+                <Text style={styles.previewText}>🎵 Mensaje de voz</Text>
+              </TouchableOpacity>
+            );
+          }
+          break;
+        case 'video':
+          if (message.content) {
+            setCurrentPreview(
+              <Video
+                source={{ uri: message.content }}
+                style={styles.mediaPreview}
+                useNativeControls
+                resizeMode="cover"
+                isLooping
+              />
+            );
+          }
+          break;
+        case 'document':
+          if (message.content) {
+            setCurrentPreview(
+              <TouchableOpacity
+                onPress={async () => {
+                  try {
+                    await Linking.openURL(message.content);
+                  } catch (error) {
+                    console.log('Error al abrir el documento:', error);
+                  }
+                }}
+              >
+                <Text style={styles.previewText}>📄 Documento</Text>
+              </TouchableOpacity>
+            );
+          }
+          break;
+        default:
           setCurrentPreview(message.text || preview);
-        }
       }
-    }, [message?.content, message?.type]);
+    }, [message, preview]);
 
     useEffect(() => {
       if (unreadCount > 0) {
@@ -154,7 +161,7 @@ const FriendRow = React.memo(
             <View style={styles.miniaturaContainer}>
               <Miniatura url={friend.miniatura} size={76} />
               {message && !message.is_me && isNew && (
-                <Animated.View style={[styles.unreadBadge, { opacity: blinkAnim }]}>
+                <Animated.View style={[styles.unreadBadge, { opacity: blinkAnim }]}>  
                   <Text style={styles.unreadText}>{unreadCount}</Text>
                 </Animated.View>
               )}
@@ -174,31 +181,29 @@ const FriendRow = React.memo(
     );
   },
   (prev, next) =>
-    prev.item?.updated === next.item?.updated &&
-    prev.item?.preview === next.item?.preview &&
-    prev.item?.message?.content === next.item?.message?.content &&
-    prev.item?.friend?.miniatura === next.item?.friend?.miniatura &&
-    prev.item?.friend?.name === next.item?.friend?.name &&
-    prev.item?.unreadCount === next.item?.unreadCount &&
-    prev.item?.isNew === next.item?.isNew
+    prev.item.updated === next.item.updated &&
+    prev.item.preview === next.item.preview &&
+    prev.item.message?.content === next.item.message?.content &&
+    prev.item.friend.miniatura === next.item.friend.miniatura &&
+    prev.item.friend.name === next.item.friend.name &&
+    prev.item.unreadCount === next.item.unreadCount &&
+    prev.item.isNew === next.item.isNew
 );
 
 function FriendsScreen() {
-  const friendList = useGlobal((state) => state.friendList) || [];
-  const memoizedFriendList = useMemo(() => friendList.map(friend => ({ ...friend })), [friendList]);
+  const friendList = useGlobal((state) => state.friendList);
 
   if (friendList === null) return <ActivityIndicator style={{ flex: 1 }} />;
   if (friendList.length === 0) return <Empty icon="inbox" message="Sin mensajes" />;
 
-  const keyExtractor = (item) => {
-    // Solución definitiva usando identificadores únicos compuestos
-    return `${item.friend.username}-${item.updated}`;
-  };
+  // Añadir índice al keyExtractor para garantizar unicidad incluso si updated coincide
+  const keyExtractor = (item, index) =>
+    `${item.friend.username}-${item.updated}-${index}`;
 
   return (
     <View style={{ flex: 1 }}>
       <FlatList
-        data={memoizedFriendList}
+        data={friendList}
         renderItem={({ item }) => <FriendRow item={item} />}
         keyExtractor={keyExtractor}
         initialNumToRender={10}
@@ -210,5 +215,6 @@ function FriendsScreen() {
 }
 
 export default FriendsScreen;
+
 
 
