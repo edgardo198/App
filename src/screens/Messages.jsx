@@ -74,6 +74,50 @@ function replaceExtension(filename, nextExtension) {
   return `${safeName}.${nextExtension}`;
 }
 
+async function fileFromWebUri(file, filename, fallbackMimeType) {
+  if (file?.file && typeof Blob !== 'undefined' && file.file instanceof Blob) {
+    const detectedType = file.file.type || fallbackMimeType;
+    if (typeof File !== 'undefined' && !(file.file instanceof File)) {
+      return new File([file.file], filename, { type: detectedType });
+    }
+    return file.file;
+  }
+
+  if (!file?.uri) {
+    return null;
+  }
+
+  const response = await fetch(file.uri);
+  if (!response.ok) {
+    throw new Error('No se pudo leer el archivo seleccionado.');
+  }
+
+  const blob = await response.blob();
+  const detectedType = blob.type || fallbackMimeType;
+  if (typeof File !== 'undefined') {
+    return new File([blob], filename, { type: detectedType });
+  }
+
+  return blob;
+}
+
+async function appendUploadFile(formData, file, filename, mimeType) {
+  if (Platform.OS === 'web') {
+    const uploadFile = await fileFromWebUri(file, filename, mimeType);
+    if (!uploadFile) {
+      throw new Error('Archivo o nombre de archivo invalido.');
+    }
+    formData.append('file', uploadFile, filename);
+    return;
+  }
+
+  formData.append('file', {
+    uri: file.uri,
+    name: filename,
+    type: mimeType,
+  });
+}
+
 const MessagesScreen = ({ navigation, route }) => {
   const isWeb = Platform.OS === 'web';
   const [message, setMessage] = useState('');
@@ -177,19 +221,10 @@ const MessagesScreen = ({ navigation, route }) => {
     return sanitizeFilename(parsed, fallbackName);
   }, []);
 
-  const handleUnavailableMediaAction = useCallback(() => {
-    if (isWeb) {
-      Alert.alert(
-        'Funcion en progreso',
-        'El chat web ya permite iniciar sesion y enviar texto. El envio multimedia sigue disponible principalmente en movil.'
-      );
-    }
-  }, [isWeb]);
-
   const uploadMediaMessage = useCallback(
     async ({ type, file, fallbackName, fallbackMimeType, errorMessage }) => {
       const uri = file?.uri;
-      if (!connectionId || !uri) {
+      if (!connectionId || (!uri && !file?.file)) {
         Alert.alert('Error', errorMessage);
         return false;
       }
@@ -198,19 +233,16 @@ const MessagesScreen = ({ navigation, route }) => {
         file.fileName || file.name,
         fallbackName || `archivo-${Date.now()}`
       );
+      const mimeType = file.mimeType || inferMimeType(filename, fallbackMimeType);
 
       const formData = new FormData();
       formData.append('connectionId', String(connectionId));
       formData.append('type', type);
-      formData.append('file', {
-        uri,
-        name: filename,
-        type: file.mimeType || inferMimeType(filename, fallbackMimeType),
-      });
 
       setIsUploadingMedia(true);
 
       try {
+        await appendUploadFile(formData, file, filename, mimeType);
         const response = await api.post('/chat/messages/media/', formData);
         if (response?.data) {
           ingestMessagePayload(response.data);
@@ -230,12 +262,7 @@ const MessagesScreen = ({ navigation, route }) => {
   );
 
   const onSendImage = useCallback(async () => {
-    if (isWeb) {
-      handleUnavailableMediaAction();
-      return;
-    }
-
-    if (!(await ensureMediaPermission())) {
+    if (!isWeb && !(await ensureMediaPermission())) {
       return;
     }
 
@@ -252,6 +279,23 @@ const MessagesScreen = ({ navigation, route }) => {
 
       const asset = result.assets[0];
       const baseFilename = asset.fileName || getFilenameFromUri(asset.uri, `image-${Date.now()}.jpg`);
+
+      if (isWeb) {
+        await uploadMediaMessage({
+          type: 'image',
+          file: {
+            uri: asset.uri,
+            file: asset.file,
+            fileName: baseFilename,
+            mimeType: asset.mimeType || inferMimeType(baseFilename, 'image/jpeg'),
+          },
+          fallbackName: `image-${Date.now()}.jpg`,
+          fallbackMimeType: 'image/jpeg',
+          errorMessage: 'No se pudo enviar la imagen.',
+        });
+        return;
+      }
+
       const optimized = await ImageManipulator.manipulateAsync(
         asset.uri,
         [{ resize: { width: 1600 } }],
@@ -276,18 +320,12 @@ const MessagesScreen = ({ navigation, route }) => {
   }, [
     ensureMediaPermission,
     getFilenameFromUri,
-    handleUnavailableMediaAction,
     isWeb,
     uploadMediaMessage,
   ]);
 
   const onSendVideo = useCallback(async () => {
-    if (isWeb) {
-      handleUnavailableMediaAction();
-      return;
-    }
-
-    if (!(await ensureMediaPermission())) {
+    if (!isWeb && !(await ensureMediaPermission())) {
       return;
     }
 
@@ -307,6 +345,7 @@ const MessagesScreen = ({ navigation, route }) => {
         type: 'video',
         file: {
           uri: asset.uri,
+          file: asset.file,
           fileName: asset.fileName || getFilenameFromUri(asset.uri, `video-${Date.now()}.mp4`),
           mimeType: asset.mimeType || 'video/mp4',
         },
@@ -321,17 +360,11 @@ const MessagesScreen = ({ navigation, route }) => {
   }, [
     ensureMediaPermission,
     getFilenameFromUri,
-    handleUnavailableMediaAction,
     isWeb,
     uploadMediaMessage,
   ]);
 
   const onSendDocument = useCallback(async () => {
-    if (isWeb) {
-      handleUnavailableMediaAction();
-      return;
-    }
-
     try {
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
@@ -348,6 +381,7 @@ const MessagesScreen = ({ navigation, route }) => {
         type: 'document',
         file: {
           uri: asset.uri,
+          file: asset.file,
           fileName: asset.name || getFilenameFromUri(asset.uri, `document-${Date.now()}`),
           mimeType: asset.mimeType || inferMimeType(asset.name, 'application/octet-stream'),
         },
@@ -359,11 +393,38 @@ const MessagesScreen = ({ navigation, route }) => {
       Alert.alert('Error', 'No se pudo preparar el documento.');
       console.error('Error preparando documento:', error?.message || error);
     }
-  }, [getFilenameFromUri, handleUnavailableMediaAction, isWeb, uploadMediaMessage]);
+  }, [getFilenameFromUri, uploadMediaMessage]);
 
   const onSendAudio = useCallback(async () => {
     if (isWeb) {
-      handleUnavailableMediaAction();
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          copyToCacheDirectory: true,
+          multiple: false,
+          type: 'audio/*',
+        });
+
+        if (result.canceled || !result.assets?.[0]) {
+          return;
+        }
+
+        const asset = result.assets[0];
+        await uploadMediaMessage({
+          type: 'audio',
+          file: {
+            uri: asset.uri,
+            file: asset.file,
+            fileName: asset.name || getFilenameFromUri(asset.uri, `audio-${Date.now()}.m4a`),
+            mimeType: asset.mimeType || inferMimeType(asset.name, 'audio/mp4'),
+          },
+          fallbackName: `audio-${Date.now()}.m4a`,
+          fallbackMimeType: 'audio/mp4',
+          errorMessage: 'No se pudo enviar el audio.',
+        });
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo preparar el audio.');
+        console.error('Error preparando audio:', error?.message || error);
+      }
       return;
     }
 
@@ -391,7 +452,7 @@ const MessagesScreen = ({ navigation, route }) => {
       console.error('Error enviando audio:', error?.message || error);
     }
   }, [
-    handleUnavailableMediaAction,
+    getFilenameFromUri,
     isRecording,
     isWeb,
     startRecording,
