@@ -1,22 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import {
-  SafeAreaView,
-  TextInput,
-  View,
-  Text,
   FlatList,
-  TouchableOpacity,
+  SafeAreaView,
   StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faMagnifyingGlass, faTimesCircle } from '@fortawesome/free-solid-svg-icons';
+import Cell from '../common/Cell';
 import Empty from '../common/Empty';
 import Miniatura from '../common/Miniatura';
+import WebBackButton from '../common/WebBackButton';
 import useGlobal from '../core/global';
-import Cell from '../common/Cell';
 
 function SearchButton({ user }) {
-  const requestConnect = useGlobal(state => state.requestConnect);
+  const requestConnect = useGlobal((state) => state.requestConnect);
 
   const statusMap = {
     connected: { icon: 'circle-check', color: '#20d080', onPress: null, text: '' },
@@ -73,20 +74,21 @@ function SearchRow({ user }) {
   );
 }
 
-function SearchScreen() {
+function SearchScreen({ navigation }) {
   const [query, setQuery] = useState('');
-  const searchList = useGlobal(state => state.searchList) || [];
-  const searchUsers = useGlobal(state => state.searchUsers);
+  const searchList = useGlobal((state) => state.searchList) || [];
+  const searchUsers = useGlobal((state) => state.searchUsers);
 
   useEffect(() => {
     searchUsers(query);
-  }, [query]);
+  }, [query, searchUsers]);
 
   const clearQuery = () => setQuery('');
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.searchBarContainer}>
+        <WebBackButton navigation={navigation} fallbackRoute="Home" style={styles.backButton} />
         <View style={styles.searchBox}>
           <FontAwesomeIcon
             icon={faMagnifyingGlass}
@@ -112,13 +114,13 @@ function SearchScreen() {
       {searchList.length === 0 ? (
         <Empty
           icon={faMagnifyingGlass}
-          message={query ? `No se encontró: "${query}"` : 'Buscar Amigos'}
+          message={query ? `No se encontro: "${query}"` : 'Buscar Amigos'}
         />
       ) : (
         <FlatList
           data={searchList}
           renderItem={({ item }) => <SearchRow user={item} />}
-          keyExtractor={item => item.username}
+          keyExtractor={(item) => item.username}
           contentContainerStyle={styles.listContent}
         />
       )}
@@ -131,8 +133,11 @@ const styles = StyleSheet.create({
   searchBarContainer: {
     padding: 16,
     backgroundColor: '#FFF',
-    marginTop: 30,    // Desplaza la barra de búsqueda hacia abajo
-    marginBottom: 10, // Mantiene espacio con la lista
+    marginTop: 30,
+    marginBottom: 10,
+  },
+  backButton: {
+    marginBottom: 14,
   },
   searchBox: {
     flexDirection: 'row',
@@ -145,7 +150,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 6,
-    elevation: 3,     // Más elevación para contraste
+    elevation: 3,
   },
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 16, color: '#333' },
@@ -170,6 +175,3 @@ const styles = StyleSheet.create({
 });
 
 export default SearchScreen;
-
-
-

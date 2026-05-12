@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { StatusBar } from 'react-native';
+import { LogBox, StatusBar } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import SplashScreen from './src/screens/Splash';
@@ -33,7 +33,13 @@ export default function App() {
   const init = useGlobal(state => state.init);
 
   useEffect(() => {
-    // Initialize app on mount
+    LogBox.ignoreLogs([
+      '`expo-notifications` functionality is not fully supported in Expo Go',
+      'Android Push notifications (remote notifications) functionality provided by expo-notifications was removed from Expo Go',
+    ]);
+  }, []);
+
+  useEffect(() => {
     init();
   }, [init]);
 

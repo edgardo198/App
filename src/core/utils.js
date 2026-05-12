@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { ADDRESS } from '../core/api';
+import { resolveMediaUrl } from '../core/api';
 
 /**
  * Imprime logs en consola, indicando la plataforma.
@@ -21,10 +21,7 @@ function miniatura(url) {
   if (!url) {
     return null;
   }
-  if (url.startsWith('http')) {
-    return { uri: url };
-  }
-  return { uri: 'http://' + ADDRESS + url };
+  return { uri: resolveMediaUrl(url) };
 }
 
 /**
@@ -35,10 +32,7 @@ function getImage(url) {
   if (!url) {
     return null;
   }
-  if (url.startsWith('http')) {
-    return { uri: url };
-  }
-  return { uri: 'http://' + ADDRESS + url };
+  return { uri: resolveMediaUrl(url) };
 }
 
 /**
@@ -49,10 +43,7 @@ function getAudio(url) {
   if (!url) {
     return null;
   }
-  if (url.startsWith('http')) {
-    return { uri: url };
-  }
-  return { uri: 'http://' + ADDRESS + url };
+  return { uri: resolveMediaUrl(url) };
 }
 
 /**
@@ -63,10 +54,7 @@ function getVideo(url) {
   if (!url) {
     return null;
   }
-  if (url.startsWith('http')) {
-    return { uri: url };
-  }
-  return { uri: 'http://' + ADDRESS + url };
+  return { uri: resolveMediaUrl(url) };
 }
 
 /**
@@ -77,10 +65,7 @@ function getDocument(url) {
   if (!url) {
     return null;
   }
-  if (url.startsWith('http')) {
-    return { uri: url };
-  }
-  return { uri: 'http://' + ADDRESS + url };
+  return { uri: resolveMediaUrl(url) };
 }
 
 /**

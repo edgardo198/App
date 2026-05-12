@@ -1,55 +1,77 @@
-import React, { useLayoutEffect, useState } from 'react';
-import { SafeAreaView, Text, TextInput, TouchableOpacity, View, TouchableWithoutFeedback, Keyboard, KeyboardAvoidingView } from 'react-native';
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  SafeAreaView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useFonts } from 'expo-font';
 import Title from '../common/Title';
+import Button from '../common/Button';
+import DismissKeyboardView from '../common/DismissKeyboardView';
+import Input from '../common/Input';
+import WebBackButton from '../common/WebBackButton';
 import styles from '../Styles/styles';
 import api from '../core/api';
 import useGlobal from '../core/global';
 import { log } from '../core/utils';
 
-function Input({ title, value, error, setValue, setError, secureTextEntry = false }) {
-  return (
-    <View style={styles.inputContainer}>
-      <Text style={[styles.inputLabel, { color: error ? '#ff7c80' : 'white' }]}>
-        {error || title}
-      </Text>
-      <TextInput
-        style={[styles.textInput, { borderColor: error ? '#ff7c80' : 'white' }]}
-        placeholder={title}
-        placeholderTextColor="#aaa"
-        secureTextEntry={secureTextEntry}
-        value={value}
-        onChangeText={(text) => {
-          setValue(text);
-          if (error) setError('');  // Clear the error when text is updated
-        }}
-      />
-    </View>
-  );
-}
+function normalizeApiError(data) {
+  if (!data) {
+    return 'No se pudo completar el registro.';
+  }
 
-function Button({ title, onPress }) {
-  return (
-    <TouchableOpacity style={styles.button} onPress={onPress}>
-      <Text style={styles.buttonText}>{title}</Text>
-    </TouchableOpacity>
-  );
+  if (typeof data === 'string') {
+    return data;
+  }
+
+  if (Array.isArray(data)) {
+    return data.join('\n');
+  }
+
+  if (typeof data === 'object') {
+    const fieldLabels = {
+      username: 'Usuario',
+      first_name: 'Nombre',
+      last_name: 'Apellido',
+      password: 'Contrasena',
+      detail: 'Detalle',
+      non_field_errors: 'Detalle',
+    };
+
+    return Object.entries(data)
+      .map(([field, value]) => {
+        const text = Array.isArray(value) ? value.join(', ') : String(value);
+        const label = fieldLabels[field] || field;
+        return field === 'detail' ? text : `${label}: ${text}`;
+      })
+      .join('\n');
+  }
+
+  return 'No se pudo completar el registro.';
 }
 
 function SignUpScreen({ navigation }) {
-  const [Usuario, setUsuario] = useState('');
-  const [Nombre, setNombre] = useState('');
-  const [Apellido, setApellido] = useState('');
-  const [Contraseña, setContraseña] = useState('');
-  const [ConfirmarContraseña, setConfirmarContraseña] = useState('');
+  const [usuario, setUsuario] = useState('');
+  const [nombre, setNombre] = useState('');
+  const [apellido, setApellido] = useState('');
+  const [contrasena, setContrasena] = useState('');
+  const [confirmarContrasena, setConfirmarContrasena] = useState('');
 
-  const [UsuarioError, setUsuarioError] = useState('');
-  const [NombreError, setNombreError] = useState('');
-  const [ApellidoError, setApellidoError] = useState('');
-  const [ContraseñaError, setContraseñaError] = useState('');
-  const [ConfirmarContraseñaError, setConfirmarContraseñaError] = useState('');
+  const [usuarioError, setUsuarioError] = useState('');
+  const [nombreError, setNombreError] = useState('');
+  const [apellidoError, setApellidoError] = useState('');
+  const [contrasenaError, setContrasenaError] = useState('');
+  const [confirmarContrasenaError, setConfirmarContrasenaError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const login = useGlobal((state) => state.login);
+  const nombreRef = useRef(null);
+  const apellidoRef = useRef(null);
+  const contrasenaRef = useRef(null);
+  const confirmarRef = useRef(null);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -65,120 +87,184 @@ function SignUpScreen({ navigation }) {
     return null;
   }
 
-  function onSignUp() {
+  async function onSignUp() {
     let isValid = true;
 
-    if (!Usuario) {
-      setUsuarioError('Ingresa un Usuario válido');
+    const normalizedUsuario = usuario.trim();
+    const normalizedNombre = nombre.trim();
+    const normalizedApellido = apellido.trim();
+
+    if (!normalizedUsuario) {
+      setUsuarioError('Ingresa un usuario valido');
       isValid = false;
     }
 
-    if (!Nombre) {
-      setNombreError('Ingresa un Nombre válido');
+    if (!normalizedNombre) {
+      setNombreError('Ingresa un nombre valido');
       isValid = false;
     }
 
-    if (!Apellido) {
-      setApellidoError('Ingresa un Apellido válido');
+    if (!normalizedApellido) {
+      setApellidoError('Ingresa un apellido valido');
       isValid = false;
     }
 
-    if (!Contraseña) {
-      setContraseñaError('Ingresa una Contraseña válida');
+    if (!contrasena) {
+      setContrasenaError('Ingresa una contrasena valida');
+      isValid = false;
+    } else if (contrasena.length < 8) {
+      setContrasenaError('Usa al menos 8 caracteres');
       isValid = false;
     }
 
-    if (Contraseña !== ConfirmarContraseña) {
-      setConfirmarContraseñaError('Las contraseñas no coinciden');
+    if (!confirmarContrasena) {
+      setConfirmarContrasenaError('Confirma la contrasena');
+      isValid = false;
+    } else if (contrasena !== confirmarContrasena) {
+      setConfirmarContrasenaError('Las contrasenas no coinciden');
       isValid = false;
     }
 
-    if (!isValid) return;
+    if (!isValid || isLoading) {
+      return;
+    }
 
-    // API request for sign up
-    api({
-      method: 'POST',
-      url: '/chat/signup/',
-      data: {
-        username: Usuario,
-        first_name: Nombre,
-        last_name: Apellido,
-        password: Contraseña,
-      },
-    })
-      .then(response => {
-        log('Sign up:', response.data);
-        const credentials = { username: Usuario, password: Contraseña };
-        login(credentials, response.data.user, response.data.tokens);
-      })
-      .catch((error) => {
-        if (error.response) {
-          console.error('API error response:', error.response.data);
-        } else if (error.request) {
-          console.error('API request error:', error.request);
-        } else {
-          console.error('Error', error.message);
-        }
+    setIsLoading(true);
+
+    try {
+      const response = await api({
+        method: 'POST',
+        url: '/chat/signup/',
+        data: {
+          username: normalizedUsuario,
+          first_name: normalizedNombre,
+          last_name: normalizedApellido,
+          password: contrasena,
+        },
       });
+
+      log('Sign up:', response.data);
+      await login(
+        {
+          username: normalizedUsuario,
+          password: contrasena,
+        },
+        response.data.user,
+        response.data.tokens
+      );
+    } catch (error) {
+      const message = error.response
+        ? normalizeApiError(error.response.data)
+        : 'No se pudo conectar con el servidor. Verifica que el backend este encendido.';
+
+      Alert.alert('No se pudo registrar', message);
+      console.error('SignUp error:', error.response?.data || error.message || error);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.innerContainer}>
-            <Title />
+        <DismissKeyboardView style={styles.innerContainer}>
+          <View style={styles.authForm}>
+            <WebBackButton navigation={navigation} fallbackRoute="SignIn" style={styles.authBackButton} />
+            <View style={styles.authTitleContainer}>
+              <Title />
+            </View>
             <Input
               title="Usuario"
-              value={Usuario}
-              error={UsuarioError}
+              value={usuario}
+              error={usuarioError}
               setValue={setUsuario}
               setError={setUsuarioError}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username"
+              textContentType="username"
+              returnKeyType="next"
+              onSubmitEditing={() => nombreRef.current?.focus()}
+              blurOnSubmit={false}
+              autoFocus
             />
             <Input
               title="Nombre"
-              value={Nombre}
-              error={NombreError}
+              value={nombre}
+              error={nombreError}
               setValue={setNombre}
               setError={setNombreError}
+              autoCapitalize="words"
+              autoCorrect={false}
+              autoComplete="name-given"
+              textContentType="givenName"
+              returnKeyType="next"
+              onSubmitEditing={() => apellidoRef.current?.focus()}
+              blurOnSubmit={false}
+              inputRef={nombreRef}
             />
             <Input
               title="Apellido"
-              value={Apellido}
-              error={ApellidoError}
+              value={apellido}
+              error={apellidoError}
               setValue={setApellido}
               setError={setApellidoError}
+              autoCapitalize="words"
+              autoCorrect={false}
+              autoComplete="name-family"
+              textContentType="familyName"
+              returnKeyType="next"
+              onSubmitEditing={() => contrasenaRef.current?.focus()}
+              blurOnSubmit={false}
+              inputRef={apellidoRef}
             />
             <Input
-              title="Contraseña"
-              value={Contraseña}
-              error={ContraseñaError}
-              setValue={setContraseña}
-              setError={setContraseñaError}
-              secureTextEntry={true}
+              title="Contrasena"
+              value={contrasena}
+              error={contrasenaError}
+              setValue={setContrasena}
+              setError={setContrasenaError}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="new-password"
+              textContentType="newPassword"
+              returnKeyType="next"
+              onSubmitEditing={() => confirmarRef.current?.focus()}
+              blurOnSubmit={false}
+              inputRef={contrasenaRef}
             />
             <Input
-              title="Confirmar Contraseña"
-              value={ConfirmarContraseña}
-              error={ConfirmarContraseñaError}
-              setValue={setConfirmarContraseña}
-              setError={setConfirmarContraseñaError}
-              secureTextEntry={true}
+              title="Confirmar Contrasena"
+              value={confirmarContrasena}
+              error={confirmarContrasenaError}
+              setValue={setConfirmarContrasena}
+              setError={setConfirmarContrasenaError}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="new-password"
+              textContentType="password"
+              returnKeyType="done"
+              onSubmitEditing={onSignUp}
+              inputRef={confirmarRef}
             />
-            <Button title="Registrarse" onPress={onSignUp} />
-            <TouchableOpacity onPress={() => navigation.navigate('SignIn')} style={styles.registerButton}>
-              <Text style={styles.registerText}>¿Ya tienes cuenta? Inicia sesión</Text>
+            <Button
+              title={isLoading ? 'Registrando...' : 'Registrarse'}
+              onPress={onSignUp}
+              disabled={isLoading}
+            />
+            <TouchableOpacity
+              onPress={() => navigation.navigate('SignIn')}
+              style={styles.registerButton}
+            >
+              <Text style={styles.registerText}>Ya tienes cuenta? Inicia sesion</Text>
             </TouchableOpacity>
           </View>
-        </TouchableWithoutFeedback>
+        </DismissKeyboardView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 export default SignUpScreen;
-
-
-
-
-

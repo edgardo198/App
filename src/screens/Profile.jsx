@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, TouchableOpacity, Modal, Alert, Platform } from 'react-native';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faPen, faSignOutAlt, faCamera, faImages } from '@fortawesome/free-solid-svg-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,12 +8,20 @@ import Miniatura from '../common/Miniatura';
 import styles from '../Styles/styles';
 
 function ProfileImage() {
-  const uploadMiniatura = useGlobal(state => state.uploadMiniatura);
-  const user = useGlobal(state => state.user);
+  const uploadMiniatura = useGlobal((state) => state.uploadMiniatura);
+  const user = useGlobal((state) => state.user);
   const [isModalVisible, setModalVisible] = useState(false);
 
   const pickImage = async (fromCamera = false) => {
     try {
+      if (fromCamera && Platform.OS === 'web') {
+        Alert.alert(
+          'No disponible en navegador',
+          'La captura directa con camara sigue pensada para la app movil.'
+        );
+        return;
+      }
+
       const permissionResult = fromCamera
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -21,7 +29,7 @@ function ProfileImage() {
       if (!permissionResult.granted) {
         Alert.alert(
           'Permiso requerido',
-          `Se necesita permiso para acceder a tu ${fromCamera ? 'cámara' : 'galería de fotos'}.`
+          `Se necesita permiso para acceder a tu ${fromCamera ? 'camara' : 'galeria de fotos'}.`
         );
         return;
       }
@@ -72,12 +80,16 @@ function ProfileImage() {
           <View style={styles.modalContainer}>
             <TouchableOpacity style={styles.optionButton} onPress={() => pickImage(false)}>
               <FontAwesomeIcon icon={faImages} size={20} color="#0078d4" />
-              <Text style={styles.optionText}>Galería</Text>
+              <Text style={styles.optionText}>
+                {Platform.OS === 'web' ? 'Seleccionar archivo' : 'Galeria'}
+              </Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.optionButton} onPress={() => pickImage(true)}>
-              <FontAwesomeIcon icon={faCamera} size={20} color="#0078d4" />
-              <Text style={styles.optionText}>Cámara</Text>
-            </TouchableOpacity>
+            {Platform.OS !== 'web' && (
+              <TouchableOpacity style={styles.optionButton} onPress={() => pickImage(true)}>
+                <FontAwesomeIcon icon={faCamera} size={20} color="#0078d4" />
+                <Text style={styles.optionText}>Camara</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.optionButton} onPress={() => setModalVisible(false)}>
               <Text style={styles.optionText}>Cancelar</Text>
             </TouchableOpacity>
@@ -89,25 +101,23 @@ function ProfileImage() {
 }
 
 function ProfileLogout() {
-  const logout = useGlobal(state => state.logout);
+  const logout = useGlobal((state) => state.logout);
 
   return (
     <TouchableOpacity onPress={logout} style={styles.logoutButton}>
       <FontAwesomeIcon icon={faSignOutAlt} size={20} color="#ffffff" />
-      <Text style={styles.logoutText}>Cerrar Sesión</Text>
+      <Text style={styles.logoutText}>Cerrar Sesion</Text>
     </TouchableOpacity>
   );
 }
 
 function ProfileScreen() {
-  const user = useGlobal(state => state.user);
+  const user = useGlobal((state) => state.user);
 
   return (
     <View style={styles.profileContainer}>
       <ProfileImage />
-      <Text style={styles.userName}>
-        {user?.name || 'Usuario'}
-      </Text>
+      <Text style={styles.userName}>{user?.name || 'Usuario'}</Text>
       <Text style={styles.userUsername}>{user?.username || 'Sin nombre de usuario'}</Text>
       <ProfileLogout />
     </View>
@@ -115,18 +125,3 @@ function ProfileScreen() {
 }
 
 export default ProfileScreen;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

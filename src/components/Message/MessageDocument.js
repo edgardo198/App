@@ -7,17 +7,19 @@ import {
   StyleSheet,
   Alert,
   Linking,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
-import * as MediaLibrary from 'expo-media-library';
+import { resolveMediaUrl } from '../../core/api';
 
-const getValidUrl = (url) => {
-  if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const serverUrl = 'http://127.0.0.1:8000';
-  return serverUrl + url;
-};
+function getValidUrl(url) {
+  return url ? resolveMediaUrl(url) : null;
+}
+
+function getSafeFilename(message) {
+  return (message.filename || `document-${message.id || 'chat'}`).replace(/[^\w.\-]/g, '_');
+}
 
 const MessageDocument = memo(({ message = {} }) => {
   const [docUri, setDocUri] = useState(null);
@@ -25,13 +27,24 @@ const MessageDocument = memo(({ message = {} }) => {
   const [hasError, setHasError] = useState(false);
 
   const downloadDocument = useCallback(async () => {
-    if (!message.document) return;
+    if (!message.document) {
+      return;
+    }
+
     try {
       setLoading(true);
       const validUrl = getValidUrl(message.document);
-      if (!validUrl) throw new Error('URL inválida');
+      if (!validUrl) {
+        throw new Error('URL invalida');
+      }
 
-      const fileUri = `${FileSystem.cacheDirectory}${message.id}.pdf`;
+      if (Platform.OS === 'web') {
+        setDocUri(validUrl);
+        return;
+      }
+
+      const filename = getSafeFilename(message);
+      const fileUri = `${FileSystem.cacheDirectory}${message.id}-${filename}`;
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
 
       if (fileInfo.exists) {
@@ -43,38 +56,29 @@ const MessageDocument = memo(({ message = {} }) => {
       const { uri } = await downloadResumable.downloadAsync();
       setDocUri(uri);
     } catch (error) {
-      console.error('Error al cargar documento:', error);
+      console.error('Error al cargar documento:', error?.message || error);
       setHasError(true);
     } finally {
       setLoading(false);
     }
-  }, [message.document, message.id]);
+  }, [message]);
 
   useEffect(() => {
     downloadDocument();
   }, [downloadDocument]);
 
-  const handleOpen = () => {
-    if (docUri) {
-      Linking.openURL(docUri);
+  const handleOpen = useCallback(async () => {
+    const target = docUri || getValidUrl(message.document);
+    if (!target) {
+      return;
     }
-  };
 
-  const handleDownload = useCallback(async () => {
-    if (!docUri) return;
     try {
-      setLoading(true);
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') throw new Error('Permiso requerido para guardar el documento');
-
-      await MediaLibrary.saveToLibraryAsync(docUri);
-      Alert.alert('Éxito', 'Documento guardado');
+      await Linking.openURL(target);
     } catch (error) {
-      Alert.alert('Error', error.message || 'Error al guardar documento');
-    } finally {
-      setLoading(false);
+      Alert.alert('Error', 'No se pudo abrir el documento.');
     }
-  }, [docUri]);
+  }, [docUri, message.document]);
 
   return (
     <View style={styles.wrapper}>
@@ -83,9 +87,19 @@ const MessageDocument = memo(({ message = {} }) => {
           {loading && <ActivityIndicator size="small" color="#303040" />}
           {hasError && <Ionicons name="warning-outline" size={24} color="red" />}
           <Ionicons name="document-text-outline" size={50} color="#555" />
-          <Text style={styles.filename}>{message.filename || 'Documento'}</Text>
-          <TouchableOpacity style={styles.downloadIconContainer} onPress={handleDownload} disabled={loading}>
-            {loading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="download-outline" size={16} color="#fff" />}
+          <Text style={styles.filename} numberOfLines={2}>
+            {message.filename || 'Documento'}
+          </Text>
+          <TouchableOpacity
+            style={styles.downloadIconContainer}
+            onPress={handleOpen}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="download-outline" size={16} color="#fff" />
+            )}
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
@@ -97,14 +111,21 @@ const styles = StyleSheet.create({
   wrapper: { alignItems: 'center', margin: 10 },
   container: {
     width: 200,
-    height: 100,
+    minHeight: 100,
     borderRadius: 10,
     backgroundColor: '#e0e0e0',
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  filename: { fontSize: 14, marginTop: 5, color: '#333' },
+  filename: {
+    fontSize: 14,
+    marginTop: 5,
+    color: '#333',
+    textAlign: 'center',
+  },
   downloadIconContainer: {
     position: 'absolute',
     top: 5,

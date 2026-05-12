@@ -1,25 +1,58 @@
-import React, { useLayoutEffect, useState } from 'react';
-import styles from '../Styles/styles';
-import { SafeAreaView, Text, TouchableWithoutFeedback, View, TouchableOpacity, Keyboard, KeyboardAvoidingView } from 'react-native';
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  SafeAreaView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useFonts } from 'expo-font';
 import Title from '../common/Title';
 import Button from '../common/Button';
+import DismissKeyboardView from '../common/DismissKeyboardView';
 import Input from '../common/Input';
+import styles from '../Styles/styles';
 import api from '../core/api';
 import useGlobal from '../core/global';
 
+function normalizeApiError(data) {
+  if (!data) {
+    return 'No se pudo iniciar sesion.';
+  }
+
+  if (typeof data === 'string') {
+    return data;
+  }
+
+  if (Array.isArray(data)) {
+    return data.join('\n');
+  }
+
+  if (typeof data === 'object') {
+    const detail = data.detail;
+    if (detail) {
+      return Array.isArray(detail) ? detail.join('\n') : String(detail);
+    }
+
+    return Object.values(data)
+      .flat()
+      .map((value) => String(value))
+      .join('\n');
+  }
+
+  return 'No se pudo iniciar sesion.';
+}
+
 function SignInScreen({ navigation }) {
   const [usuario, setUsuario] = useState('');
-  const [contraseña, setContraseña] = useState('');
+  const [contrasena, setContrasena] = useState('');
   const [usuarioError, setUsuarioError] = useState('');
-  const [contraseñaError, setContraseñaError] = useState('');
-  const login = useGlobal(state => state.login);
-  const authenticated = useGlobal(state => state.authenticated);
+  const [contrasenaError, setContrasenaError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Estado para controlar el Modal y el mensaje
-  const [isModalVisible, setModalVisible] = useState(false);
-  const [modalMessage, setModalMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // Estado de carga
+  const login = useGlobal((state) => state.login);
+  const passwordRef = useRef(null);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -35,99 +68,110 @@ function SignInScreen({ navigation }) {
     return null;
   }
 
-  function onSignIn() {
-    const failUsuario = !usuario;
-    const failContraseña = !contraseña;
+  async function onSignIn() {
+    const normalizedUsuario = usuario.trim();
+    let hasError = false;
 
-    // Validación de campos vacíos
-    if (failUsuario) setUsuarioError('Ingresa un Usuario');
-    else setUsuarioError('');
+    if (!normalizedUsuario) {
+      setUsuarioError('Ingresa un usuario valido');
+      hasError = true;
+    }
 
-    if (failContraseña) setContraseñaError('Ingresa una Contraseña');
-    else setContraseñaError('');
+    if (!contrasena) {
+      setContrasenaError('Ingresa una contrasena');
+      hasError = true;
+    }
 
-    if (failUsuario || failContraseña) return; // No enviar la petición si hay errores
+    if (hasError || isLoading) {
+      return;
+    }
 
-    // Estado de carga activo
     setIsLoading(true);
 
-    // Llamada a la API solo si ambos campos son válidos
-    api({
-      method: 'POST',
-      url: '/chat/signin/',
-      data: {
-        username: usuario,
-        password: contraseña,
-      }
-    })
-    .then(response => {
-      const credentials = { 
-        username: usuario, 
-        password: contraseña
-      };
+    try {
+      const response = await api({
+        method: 'POST',
+        url: '/chat/signin/',
+        data: {
+          username: normalizedUsuario,
+          password: contrasena,
+        },
+      });
 
-      login(credentials, response.data.user, response.data.tokens);
-      setIsLoading(false); // Estado de carga inactivo
-    })
-    .catch(error => {
-      setIsLoading(false); // Estado de carga inactivo
-      if (error.response) {
-        setModalMessage("Credenciales inválidas. Inténtalo nuevamente.");
-      } else {
-        setModalMessage("Ocurrió un error de conexión. Inténtalo de nuevo.");
-      }
-      setModalVisible(true);
-    });
+      await login(
+        {
+          username: normalizedUsuario,
+          password: contrasena,
+        },
+        response.data.user,
+        response.data.tokens
+      );
+    } catch (error) {
+      const message = error.response
+        ? normalizeApiError(error.response.data)
+        : 'No se pudo conectar con el servidor. Verifica que el backend este encendido.';
+
+      Alert.alert('No se pudo iniciar sesion', message);
+      console.error('SignIn error:', error.response?.data || error.message || error);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView behavior='height' style={{ flex: 1 }}>
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <View style={styles.innerContainer}>
-            <Title />
-            <Input 
+      <KeyboardAvoidingView behavior="height" style={{ flex: 1 }}>
+        <DismissKeyboardView style={styles.innerContainer}>
+          <View style={styles.authForm}>
+            <View style={styles.authTitleContainer}>
+              <Title />
+            </View>
+            <Input
               title="Usuario"
               value={usuario}
               error={usuarioError}
               setValue={setUsuario}
               setError={setUsuarioError}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="username"
+              textContentType="username"
+              returnKeyType="next"
+              onSubmitEditing={() => passwordRef.current?.focus()}
+              blurOnSubmit={false}
+              autoFocus
             />
-            <Input 
-              title="Contraseña"
-              value={contraseña}
-              error={contraseñaError}
-              setValue={setContraseña}
-              setError={setContraseñaError} 
-              secureTextEntry={true} 
+            <Input
+              title="Contrasena"
+              value={contrasena}
+              error={contrasenaError}
+              setValue={setContrasena}
+              setError={setContrasenaError}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+              returnKeyType="done"
+              onSubmitEditing={onSignIn}
+              inputRef={passwordRef}
             />
-            <Button 
-              title={isLoading ? 'Cargando...' : 'Ingresar'} 
-              onPress={onSignIn} 
-              disabled={isLoading} // Deshabilitar botón mientras carga
+            <Button
+              title={isLoading ? 'Ingresando...' : 'Ingresar'}
+              onPress={onSignIn}
+              disabled={isLoading}
             />
-            <TouchableOpacity onPress={() => navigation.navigate('SignUp')} style={styles.registerButton}>
-              <Text style={styles.registerText}>¿No tienes cuenta? Regístrate</Text>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('SignUp')}
+              style={styles.registerButton}
+            >
+              <Text style={styles.registerText}>No tienes cuenta? Registrate</Text>
             </TouchableOpacity>
           </View>
-        </TouchableWithoutFeedback>
+        </DismissKeyboardView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 export default SignInScreen;
-
-
-
-
-
-
-
-
-
-
-
-
-
-

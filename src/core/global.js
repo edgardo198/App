@@ -1,12 +1,24 @@
+import { Alert, Platform } from 'react-native';
 import { create } from 'zustand';
-import { ADDRESS } from './api';
+import api, { WS_BASE_URL } from './api';
 import secure from './secure';
-import api from './api';
-import { log, getImage, getAudio, getVideo, getDocument } from './utils';
-import { FlatList } from 'react-native';
-import axios from 'axios';
+import { getAudio, getDocument, getImage, getVideo } from './utils';
 
-// Definición de funciones auxiliares y de respuesta
+const SESSION_RESET_STATE = {
+  authenticated: false,
+  user: {},
+  friendList: [],
+  searchList: [],
+  requestList: [],
+  messagesList: [],
+  messagesNext: null,
+  messagesTyping: null,
+  messagesUsername: null,
+  socket: null,
+  socketConnected: false,
+  socketShouldReconnect: false,
+};
+
 function responseFriendList(set, get, friendList) {
   set(() => ({
     friendList: Array.isArray(friendList) ? friendList : [],
@@ -14,126 +26,134 @@ function responseFriendList(set, get, friendList) {
 }
 
 function responseFriendNew(set, get, friend) {
-  const friendList = [friend, ...get().friendList];
+  const currentFriendList = Array.isArray(get().friendList) ? get().friendList : [];
   set(() => ({
-    friendList,
+    friendList: [friend, ...currentFriendList],
   }));
+}
+
+function normalizeUsername(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
 function responseMessageList(set, get, data) {
-  const { messages } = data;
-  const processedMessages = messages.map((message) => {
-    if (message.image) {
-      const imgSource = getImage(message.image);
-      message.image = imgSource.uri;
+  const processedMessages = (Array.isArray(data?.messages) ? data.messages : []).map((message) => {
+    const processedMessage = { ...message };
+
+    if (processedMessage.image) {
+      processedMessage.image = getImage(processedMessage.image)?.uri || processedMessage.image;
     }
-    if (message.audio) {
-      const audioSource = getAudio(message.audio);
-      message.audio = audioSource.uri;
+
+    if (processedMessage.audio) {
+      processedMessage.audio = getAudio(processedMessage.audio)?.uri || processedMessage.audio;
     }
-    // Añadir procesamiento para video y documento
-    if (message.video) {
-      const videoSource = getVideo(message.video);
-      message.video = videoSource.uri;
+
+    if (processedMessage.video) {
+      processedMessage.video = getVideo(processedMessage.video)?.uri || processedMessage.video;
     }
-    if (message.document) {
-      const documentSource = getDocument(message.document);
-      message.document = documentSource.uri;
+
+    if (processedMessage.document) {
+      processedMessage.document =
+        getDocument(processedMessage.document)?.uri || processedMessage.document;
     }
-    return message;
+
+    return processedMessage;
   });
-  
-  const messagesList = Array.isArray(get().messagesList) 
-    ? [...get().messagesList, ...processedMessages]
-    : processedMessages;
-  
+
+  const currentMessages = Array.isArray(get().messagesList) ? get().messagesList : [];
+
   set(() => ({
-    messagesList,
-    messagesNext: data.next,
-    messagesUsername: data.friend.username,
+    messagesList: [...currentMessages, ...processedMessages],
+    messagesNext: data?.next ?? null,
+    messagesUsername: data?.friend?.username ?? null,
   }));
 }
 
-// Definición de updateFriendPreview como función de la tienda
-const updateFriendPreview = (set, get, username, preview, created, is_me, type = 'text', content = null) => {
+const updateFriendPreview = (
+  set,
+  get,
+  username,
+  preview,
+  created,
+  isMe,
+  type = 'text',
+  content = null
+) => {
   if (!username) {
-    console.warn("WARNING: Username es inválido o undefined");
+    console.warn('WARNING: Username invalido o vacio en updateFriendPreview.');
     return;
   }
-  
+
   const friendList = get().friendList;
-  if (!Array.isArray(friendList)) return;
-  
-  // Normalizamos el username para evitar problemas de mayúsculas/minúsculas.
+  if (!Array.isArray(friendList)) {
+    return;
+  }
+
   const normalizedUsername = username.trim().toLowerCase();
-  
-  // Buscamos el ítem existente en la friendList con comparación exacta.
+
   let friendIndex = friendList.findIndex(
     (item) =>
-      item.friend &&
-      item.friend.username &&
+      item?.friend?.username &&
       item.friend.username.trim().toLowerCase() === normalizedUsername
   );
-  
-  // Si no se encuentra, intentamos una búsqueda parcial.
+
   if (friendIndex === -1) {
-    console.warn(`[updateFriendPreview] WARNING: No se encontró el amigo ${username} con comparación exacta. Intentando búsqueda parcial.`);
     friendIndex = friendList.findIndex(
       (item) =>
-        item.friend &&
-        item.friend.username &&
+        item?.friend?.username &&
         item.friend.username.toLowerCase().includes(normalizedUsername)
     );
   }
-  
-  // Definimos el preview según el tipo.
-  let fixedPreview;
-  if (type === "text") {
-    fixedPreview = preview;
-  } else if (type === "image") {
-    fixedPreview = "[Imagen]";
-  } else if (type === "audio") {
-    fixedPreview = "[Audio]";
-  } else if (type === "video") {
-    fixedPreview = "[Video]";
-  } else if (type === "document") {
-    fixedPreview = "[Documento]";
-  } else {
-    fixedPreview = "[Mensaje]";
+
+  if (friendIndex === -1) {
+    console.warn(`[updateFriendPreview] WARNING: No se encontro al amigo ${username}.`);
+    return;
   }
-  
+
   const item = friendList[friendIndex];
-  
-  let updatedItem;
-  if (is_me) {
-    updatedItem = {
-      ...item,
-      updated: created,
-      preview: fixedPreview,
-      message: { type, content, text: fixedPreview, is_me }
-    };
-  } else {
-    // Para mensajes recibidos (is_me false): se incrementa el contador y se actualiza el preview.
-    const newCount = (item.unreadCount || 0) + 1;
-    updatedItem = {
-      ...item,
-      updated: created,
-      isNew: true,
-      preview: fixedPreview,
-      unreadCount: newCount,
-      message: { type, content, text: fixedPreview, is_me }
-    };
+  if (!item) {
+    return;
   }
-  
-  const newFriendList = [...friendList];
-  newFriendList[friendIndex] = updatedItem;
-  set({ friendList: newFriendList });
+
+  const fixedPreview =
+    type === 'text'
+      ? preview
+      : type === 'image'
+        ? '[Imagen]'
+        : type === 'audio'
+          ? '[Audio]'
+          : type === 'video'
+            ? '[Video]'
+            : type === 'document'
+              ? '[Documento]'
+              : '[Mensaje]';
+
+  const nextItem = isMe
+    ? {
+        ...item,
+        updated: created,
+        preview: fixedPreview,
+        message: { type, content, text: fixedPreview, is_me: isMe },
+      }
+    : {
+        ...item,
+        updated: created,
+        isNew: true,
+        preview: fixedPreview,
+        unreadCount: (item.unreadCount || 0) + 1,
+        message: { type, content, text: fixedPreview, is_me: isMe },
+      };
+
+  const nextFriendList = [...friendList];
+  nextFriendList.splice(friendIndex, 1);
+  nextFriendList.unshift(nextItem);
+  set({ friendList: nextFriendList });
 };
 
-// Mueve la definición de markFriendAsReadFn ANTES de la creación del store
 function markFriendAsReadFn(set, get, username) {
-  const updatedList = get().friendList.map(item =>
-    item.friend.username === username
+  const friendList = Array.isArray(get().friendList) ? get().friendList : [];
+  const updatedList = friendList.map((item) =>
+    item?.friend?.username === username
       ? { ...item, unreadCount: 0, isNew: false }
       : item
   );
@@ -142,33 +162,30 @@ function markFriendAsReadFn(set, get, username) {
 
 function responseMessageSendCommon(set, get, data, typeOverride = null) {
   const currentUser = get().user;
-  if (!data?.message) {
-    console.warn("WARNING: data.message no está definido.");
+  if (!currentUser?.username || !data?.message) {
+    console.warn('WARNING: Payload de mensaje incompleto.');
     return;
   }
 
-  let sender, receiver;
+  let sender;
+  let receiver;
 
-  // Intentamos usar sender y receiver si vienen en el payload.
   if (data.sender && data.receiver) {
-    sender = typeof data.sender === "string" ? { username: data.sender } : data.sender;
-    receiver = typeof data.receiver === "string" ? { username: data.receiver } : data.receiver;
+    sender = typeof data.sender === 'string' ? { username: data.sender } : data.sender;
+    receiver = typeof data.receiver === 'string' ? { username: data.receiver } : data.receiver;
   } else if (data.friend) {
-    console.warn("WARNING: Sender o receiver no están definidos en el payload. Usando data.friend como fallback.");
     const fallbackFriendUsername =
-      typeof data.friend === "string"
+      typeof data.friend === 'string'
         ? data.friend.trim()
-        : (data.friend?.username || "").trim();
+        : (data.friend?.username || '').trim();
+
     if (!fallbackFriendUsername) {
-      console.warn("WARNING: data.friend está vacío.");
+      console.warn('WARNING: data.friend esta vacio.');
       return;
     }
-    if (fallbackFriendUsername.toLowerCase() === currentUser.username.trim().toLowerCase()) {
-      console.warn("WARNING: data.friend es igual al usuario actual. No se puede determinar la contraparte.");
-      return;
-    }
-    if (typeof data.message.is_me === "boolean") {
-      if (data.message.is_me === true) {
+
+    if (typeof data.message.is_me === 'boolean') {
+      if (data.message.is_me) {
         sender = currentUser;
         receiver = { username: fallbackFriendUsername };
       } else {
@@ -180,114 +197,136 @@ function responseMessageSendCommon(set, get, data, typeOverride = null) {
       receiver = { username: fallbackFriendUsername };
     }
   } else {
-    console.warn("WARNING: Sender o receiver no están definidos en el payload");
+    console.warn('WARNING: No fue posible determinar sender y receiver.');
     return;
   }
 
   const currentName = currentUser.username.trim().toLowerCase();
-  const senderName = sender.username.trim().toLowerCase();
-  const receiverName = receiver.username.trim().toLowerCase();
+  const senderName = sender?.username?.trim().toLowerCase();
+  const receiverName = receiver?.username?.trim().toLowerCase();
 
-  let friendUsername = "";
+  if (!senderName || !receiverName) {
+    console.warn('WARNING: El payload no contiene usernames validos.');
+    return;
+  }
+
+  let friendUsername = '';
   if (currentName === senderName && currentName !== receiverName) {
     friendUsername = receiver.username;
   } else if (currentName === receiverName && currentName !== senderName) {
     friendUsername = sender.username;
   } else {
     friendUsername = data.friend
-      ? (typeof data.friend === "string" ? data.friend : data.friend.username)
-      : "";
-    if (!friendUsername || friendUsername.trim().toLowerCase() === currentName) {
-      console.warn("WARNING: No se pudo determinar correctamente la contraparte (friend).");
-      return;
-    }
+      ? typeof data.friend === 'string'
+        ? data.friend
+        : data.friend.username
+      : '';
   }
 
-  if (!friendUsername) {
-    console.warn("WARNING: No se pudo extraer el username del friend correctamente");
+  if (!friendUsername || friendUsername.trim().toLowerCase() === currentName) {
+    console.warn('WARNING: No se pudo determinar la contraparte del mensaje.');
     return;
   }
 
   const isMe = currentName === senderName;
-
-  // Usamos typeOverride si se proporciona; sino, usamos data.message.type.
   const finalType = typeOverride || data.message.type;
-  let processedMessage = { ...data.message, type: finalType };
+  const processedMessage = { ...data.message, type: finalType };
+  const currentConversationUsername = normalizeUsername(get().messagesUsername);
+  const isCurrentConversation =
+    currentConversationUsername &&
+    currentConversationUsername === normalizeUsername(friendUsername);
 
-  // Procesamos multimedia: para imagen, audio, video y documento.
-  if (finalType === "image" && processedMessage.image) {
-    const imgSource = getImage(processedMessage.image);
-    if (imgSource?.uri) {
-      processedMessage.image = imgSource.uri;
-    }
-  } else if (finalType === "audio" && processedMessage.audio) {
-    const audioSource = getAudio(processedMessage.audio);
-    if (audioSource?.uri) {
-      processedMessage.audio = audioSource.uri;
-    }
-  } else if (finalType === "video" && processedMessage.video) {
-    // Suponemos que dispones de una función getVideo similar a getImage/getAudio.
-    const videoSource = typeof getVideo === "function" ? getVideo(processedMessage.video) : null;
-    if (videoSource?.uri) {
-      processedMessage.video = videoSource.uri;
-    }
-  } else if (finalType === "document" && processedMessage.document) {
-    // Para documentos, podrías simplemente dejar la URL o procesarla si es necesario.
-    const documentSource = typeof getDocument === "function" ? getDocument(processedMessage.document) : null;
-    if (documentSource?.uri) {
-      processedMessage.document = documentSource.uri;
-    }
+  if (finalType === 'image' && processedMessage.image) {
+    processedMessage.image = getImage(processedMessage.image)?.uri || processedMessage.image;
+  } else if (finalType === 'audio' && processedMessage.audio) {
+    processedMessage.audio = getAudio(processedMessage.audio)?.uri || processedMessage.audio;
+  } else if (finalType === 'video' && processedMessage.video) {
+    processedMessage.video = getVideo(processedMessage.video)?.uri || processedMessage.video;
+  } else if (finalType === 'document' && processedMessage.document) {
+    processedMessage.document =
+      getDocument(processedMessage.document)?.uri || processedMessage.document;
   }
 
   const previewText =
-    finalType === "text" ? (processedMessage.text || "") :
-    finalType === "image" ? "[Imagen]" :
-    finalType === "audio" ? "[Audio]" :
-    finalType === "video" ? "[Video]" :
-    finalType === "document" ? "[Documento]" :
-    "[Mensaje]";
+    finalType === 'text'
+      ? processedMessage.text || ''
+      : finalType === 'image'
+        ? '[Imagen]'
+        : finalType === 'audio'
+          ? '[Audio]'
+          : finalType === 'video'
+            ? '[Video]'
+            : finalType === 'document'
+              ? '[Documento]'
+              : '[Mensaje]';
 
   const contentValue =
-    finalType === "text" ? processedMessage.text :
-    finalType === "image" ? processedMessage.image :
-    finalType === "audio" ? processedMessage.audio :
-    finalType === "video" ? processedMessage.video :
-    finalType === "document" ? processedMessage.document : null;
+    finalType === 'text'
+      ? processedMessage.text
+      : finalType === 'image'
+        ? processedMessage.image
+        : finalType === 'audio'
+          ? processedMessage.audio
+          : finalType === 'video'
+            ? processedMessage.video
+            : finalType === 'document'
+              ? processedMessage.document
+              : null;
 
-  updateFriendPreview(set, get, friendUsername, previewText, processedMessage.created, isMe, finalType, contentValue);
+  updateFriendPreview(
+    set,
+    get,
+    friendUsername,
+    previewText,
+    processedMessage.created,
+    isMe,
+    finalType,
+    contentValue
+  );
 
-  set({ messagesList: [processedMessage, ...get().messagesList], messagesTyping: null });
+  if (!isCurrentConversation) {
+    return;
+  }
+
+  const currentMessages = Array.isArray(get().messagesList) ? get().messagesList : [];
+  const nextMessages = currentMessages.some((item) => item?.id === processedMessage.id)
+    ? currentMessages.map((item) => (item?.id === processedMessage.id ? processedMessage : item))
+    : [processedMessage, ...currentMessages];
+
+  set({
+    messagesList: nextMessages,
+    messagesTyping: null,
+  });
 }
 
-
-// Función para mensajes de texto.
-// Función para mensajes de texto.
 function responseMessageSend(set, get, data) {
   responseMessageSendCommon(set, get, data);
 }
 
-// Función para mensajes con imagen.
 function responseMessageSendImage(set, get, data) {
-  responseMessageSendCommon(set, get, data, "image");
+  responseMessageSendCommon(set, get, data, 'image');
 }
 
-// Función para mensajes con audio.
 function responseMessageSendAudio(set, get, data) {
-  responseMessageSendCommon(set, get, data, "audio");
+  responseMessageSendCommon(set, get, data, 'audio');
 }
 
-// Función para mensajes con video.
 function responseMessageSendVideo(set, get, data) {
-  responseMessageSendCommon(set, get, data, "video");
+  responseMessageSendCommon(set, get, data, 'video');
 }
 
-// Función para mensajes con documentos.
 function responseMessageSendDocument(set, get, data) {
-  responseMessageSendCommon(set, get, data, "document");
+  responseMessageSendCommon(set, get, data, 'document');
 }
-
 
 function responseMessageType(set, get, data) {
+  const currentConversationUsername = normalizeUsername(get().messagesUsername);
+  const typingUsername = normalizeUsername(data?.username);
+
+  if (!currentConversationUsername || typingUsername !== currentConversationUsername) {
+    return;
+  }
+
   set(() => ({
     messagesTyping: new Date(),
   }));
@@ -295,29 +334,32 @@ function responseMessageType(set, get, data) {
 
 function responseRequestAccept(set, get, connection) {
   const user = get().user;
-  if (user.username === connection.receiver.username) {
-    const requestList = [...get().requestList];
-    const requestIndex = requestList.findIndex(
-      (request) => request.id === connection.id
-    );
+  if (!user?.username || !connection) {
+    return;
+  }
+
+  if (user.username === connection.receiver?.username) {
+    const requestList = Array.isArray(get().requestList) ? [...get().requestList] : [];
+    const requestIndex = requestList.findIndex((request) => request.id === connection.id);
     if (requestIndex >= 0) {
       requestList.splice(requestIndex, 1);
       set(() => ({ requestList }));
     }
   }
-  const sl = get().searchList;
-  if (!sl) return;
-  const searchList = [...sl];
+
+  const searchList = Array.isArray(get().searchList) ? [...get().searchList] : [];
   let searchIndex = -1;
-  if (user.username === connection.receiver.username) {
+
+  if (user.username === connection.receiver?.username) {
     searchIndex = searchList.findIndex(
-      (user) => user.username === connection.sender.username
+      (searchUser) => searchUser.username === connection.sender?.username
     );
   } else {
     searchIndex = searchList.findIndex(
-      (user) => user.username === connection.receiver.username
+      (searchUser) => searchUser.username === connection.receiver?.username
     );
   }
+
   if (searchIndex >= 0) {
     searchList[searchIndex].status = 'connected';
     set(() => ({ searchList }));
@@ -326,8 +368,12 @@ function responseRequestAccept(set, get, connection) {
 
 function responseRequestConnect(set, get, data) {
   const user = get().user;
+  if (!user?.username || !data?.sender?.username || !data?.receiver?.username) {
+    return;
+  }
+
   if (user.username === data.sender.username) {
-    const searchList = [...get().searchList];
+    const searchList = Array.isArray(get().searchList) ? [...get().searchList] : [];
     const searchIndex = searchList.findIndex(
       (request) => request.username === data.receiver.username
     );
@@ -336,7 +382,7 @@ function responseRequestConnect(set, get, data) {
       set(() => ({ searchList }));
     }
   } else {
-    const requestList = [...get().requestList];
+    const requestList = Array.isArray(get().requestList) ? [...get().requestList] : [];
     const requestIndex = requestList.findIndex(
       (request) => request.username === data.sender.username
     );
@@ -361,114 +407,205 @@ function responseSearch(set, get, data) {
 
 function responseMiniatura(set, get, data) {
   set(() => ({
-    user: data,
+    user: data || {},
   }));
 }
 
-// Creación del store con Zustand
+function responseError(set, get, data) {
+  const message =
+    typeof data === 'string'
+      ? data
+      : data?.message || 'Se produjo un error al comunicarse con el servidor.';
+
+  console.error('Error del socket:', message);
+
+  if (Platform.OS !== 'web') {
+    Alert.alert('Error', message);
+  }
+}
+
 const useGlobal = create((set, get) => ({
   initialized: false,
   authenticated: false,
   user: {},
+  socket: null,
+  socketConnected: false,
+  socketShouldReconnect: false,
+  searchList: [],
+  friendList: [],
+  requestList: [],
+  messagesList: [],
+  messagesNext: null,
+  messagesTyping: null,
+  messagesUsername: null,
+
   init: async () => {
     try {
       const credentials = await secure.get('credentials');
-      if (!credentials || !credentials.username || !credentials.password) {
+      if (!credentials?.username || !credentials?.password) {
+        await secure.remove('tokens');
         set({ initialized: true });
         return;
       }
-      const response = await api.post('/chat/signin/', credentials);
-      if (response?.status === 200) {
-        const { user, tokens } = response.data;
-        if (user && tokens) {
-          await secure.set('tokens', tokens);
-          set({
-            authenticated: true,
-            user,
-          });
-        }
+
+      const normalizedCredentials = {
+        username: credentials.username.trim(),
+        password: credentials.password,
+      };
+
+      const response = await api.post('/chat/signin/', normalizedCredentials);
+      const { user, tokens } = response?.data || {};
+
+      if (!user || !tokens) {
+        throw new Error('Missing session payload');
       }
+
+      await secure.set('credentials', normalizedCredentials);
+      await secure.set('tokens', tokens);
+
+      set({
+        ...SESSION_RESET_STATE,
+        initialized: true,
+        authenticated: true,
+        user,
+      });
     } catch (error) {
       console.error('Error en init:', error.message || error);
-    } finally {
-      set({ initialized: true });
+      await secure.wipe();
+      set({
+        ...SESSION_RESET_STATE,
+        initialized: true,
+      });
     }
   },
+
   login: async (credentials, user, tokens) => {
-    await secure.set('credentials', credentials);
+    const normalizedCredentials = {
+      username: credentials.username.trim(),
+      password: credentials.password,
+    };
+
+    await secure.set('credentials', normalizedCredentials);
     await secure.set('tokens', tokens);
+
     set({
+      ...SESSION_RESET_STATE,
+      initialized: true,
       authenticated: true,
       user,
     });
   },
+
   logout: async () => {
+    get().socketClose(false);
     await secure.wipe();
     set({
-      authenticated: false,
-      user: {},
-      friendList: [],
-      searchList: [],
-      requestList: [],
-      messagesList: [],
+      ...SESSION_RESET_STATE,
       initialized: true,
     });
   },
-  socket: null,
-  socketConnected: false,
+
   socketConnect: async (retries = 3) => {
     try {
+      const existingSocket = get().socket;
+      if (
+        existingSocket &&
+        (existingSocket.readyState === WebSocket.OPEN ||
+          existingSocket.readyState === WebSocket.CONNECTING)
+      ) {
+        return;
+      }
+
       const tokens = await secure.get('tokens');
-      if (!tokens?.access) return;
-      const protocol = ADDRESS.startsWith('https') ? 'wss' : 'ws';
-      const socket = new WebSocket(`${protocol}://${ADDRESS}/ws/chat/?token=${tokens.access}`);
+      if (!tokens?.access) {
+        set({
+          socket: null,
+          socketConnected: false,
+          socketShouldReconnect: false,
+        });
+        return;
+      }
+
+      set({ socketShouldReconnect: true });
+
+      const socket = new WebSocket(`${WS_BASE_URL}/ws/chat/?token=${tokens.access}`);
+      let reconnectScheduled = false;
+
+      const scheduleReconnect = () => {
+        if (
+          reconnectScheduled ||
+          retries <= 0 ||
+          !get().socketShouldReconnect ||
+          !get().authenticated
+        ) {
+          return;
+        }
+
+        reconnectScheduled = true;
+        setTimeout(() => get().socketConnect(retries - 1), 3000);
+      };
+
       socket.onopen = () => {
+        set({ socket, socketConnected: true });
         socket.send(JSON.stringify({ source: 'request.list' }));
-        set({ socketConnected: true });
         socket.send(JSON.stringify({ source: 'friend.list' }));
       };
+
       socket.onmessage = (event) => {
-        const parsed = JSON.parse(event.data);
-        const responses = {
-          'friend.list': responseFriendList,
-          'friend.new': responseFriendNew,
-          'message.list': responseMessageList,
-          'message.send': responseMessageSend,
-          'message.send_image': responseMessageSendImage,
-          'message.send_audio': responseMessageSendAudio,
-          'message.send_video': responseMessageSendVideo,       
-          'message.send_document': responseMessageSendDocument,
-          'message.type': responseMessageType,
-          'request.accept': responseRequestAccept,
-          'request.connect': responseRequestConnect,
-          'request.list': responseRequestList,
-          'search': responseSearch,
-          'miniatura': responseMiniatura,
-        };
-        const resp = responses[parsed.source];
-        if (resp) resp(set, get, parsed.data);
+        try {
+          const parsed = JSON.parse(event.data);
+          const responses = {
+            'friend.list': responseFriendList,
+            'friend.new': responseFriendNew,
+            'message.list': responseMessageList,
+            'message.send': responseMessageSend,
+            'message.send_image': responseMessageSendImage,
+            'message.send_audio': responseMessageSendAudio,
+            'message.send_video': responseMessageSendVideo,
+            'message.send_document': responseMessageSendDocument,
+            'message.type': responseMessageType,
+            'request.accept': responseRequestAccept,
+            'request.connect': responseRequestConnect,
+            'request.list': responseRequestList,
+            search: responseSearch,
+            miniatura: responseMiniatura,
+            error: responseError,
+          };
+
+          const handler = responses[parsed.source];
+          if (handler) {
+            handler(set, get, parsed.data);
+          }
+        } catch (error) {
+          console.error('Error al procesar mensaje del socket:', error.message || error);
+        }
       };
+
       socket.onerror = () => {
         set({ socket: null, socketConnected: false });
-        if (retries > 0) setTimeout(() => get().socketConnect(retries - 1), 3000);
+        scheduleReconnect();
       };
+
       socket.onclose = () => {
         set({ socket: null, socketConnected: false });
-        if (retries > 0) setTimeout(() => get().socketConnect(retries - 1), 3000);
+        scheduleReconnect();
       };
-      set({ socket });
+
+      set({ socket, socketConnected: false });
     } catch (error) {
       console.error('Error al conectar WebSocket:', error.message || error);
     }
   },
-  socketClose: () => {
+
+  socketClose: (shouldReconnect = false) => {
     const { socket } = get();
+    set({ socketShouldReconnect: shouldReconnect });
     if (socket) {
       socket.close();
-      set({ socket: null, socketConnected: false });
     }
+    set({ socket: null, socketConnected: false });
   },
-  searchList: [],
+
   searchUsers: (query) => {
     const socket = get().socket;
     if (query && socket?.readyState === WebSocket.OPEN) {
@@ -477,11 +614,27 @@ const useGlobal = create((set, get) => ({
       set(() => ({ searchList: [] }));
     }
   },
-  friendList: [],
-  messagesList: [],
-  messagesNext: null,
-  messagesTyping: null,
-  messagesUsername: null,
+
+  clearMessages: () => {
+    set(() => ({
+      messagesList: [],
+      messagesNext: null,
+      messagesTyping: null,
+      messagesUsername: null,
+    }));
+  },
+
+  openMessagesThread: (username) => {
+    set(() => ({
+      messagesUsername: typeof username === 'string' ? username.trim() : null,
+      messagesTyping: null,
+    }));
+  },
+
+  ingestMessagePayload: (payload) => {
+    responseMessageSendCommon(set, get, payload);
+  },
+
   messageList: (connectionId, page = 0) => {
     if (page === 0) {
       set(() => ({
@@ -491,6 +644,7 @@ const useGlobal = create((set, get) => ({
         messagesUsername: null,
       }));
     }
+
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(
@@ -502,6 +656,7 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
+
   messageSend: (connectionId, message) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
@@ -514,6 +669,7 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
+
   messageSendImage: (connectionId, base64, filename) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
@@ -528,6 +684,7 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
+
   messageSendAudio: (connectionId, base64, filename) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
@@ -541,11 +698,10 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
-  // Cambiar a HTTP para archivos grandes
+
   messageSendVideo: (connectionId, base64, filename) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
-      // Extraemos solo la parte base64 sin el encabezado
       const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
       socket.send(
         JSON.stringify({
@@ -557,6 +713,7 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
+
   messageSendDocument: (connectionId, base64, filename) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
@@ -571,7 +728,7 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
-  
+
   messageType: (username) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
@@ -583,32 +740,34 @@ const useGlobal = create((set, get) => ({
       );
     }
   },
-  requestList: [],
+
   requestAccept: (username) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ source: 'request.accept', username }));
     }
   },
+
   requestConnect: (username) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ source: 'request.connect', username }));
     }
   },
+
   uploadMiniatura: (file) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(
         JSON.stringify({
-          source: SOURCES.MINIATURA,
+          source: 'miniatura',
           base64: file.base64,
           filename: file.fileName,
         })
       );
     }
   },
-  // Agregamos markFriendAsRead a la tienda para que esté disponible globalmente
+
   markFriendAsRead: (username) => markFriendAsReadFn(set, get, username),
 }));
 

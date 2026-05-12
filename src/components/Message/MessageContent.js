@@ -10,7 +10,13 @@ const MessageContent = memo(({ message, onImagePress }) => {
   if (message.image) {
     return <MessageImage message={message} onImagePress={onImagePress} />;
   } else if (message.audio) {
-    return <AudioPlayer audioUri={message.audio} messageId={message.id} />;
+    return (
+      <AudioPlayer
+        audioUri={message.audio}
+        messageId={message.id}
+        filename={message.filename}
+      />
+    );
   } else if (message.document) {
     return <MessageDocument message={message} />; 
   } else if (message.video) {

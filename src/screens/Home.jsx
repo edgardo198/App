@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from 'react';
-import { View, Text, ActivityIndicator, FlatList } from 'react-native';
+import { Platform, View, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { FontAwesomeIcon } from '@fortawesome/react-native-fontawesome';
 import { faInbox, faUser, faUserFriends, faSearch } from '@fortawesome/free-solid-svg-icons';
@@ -57,6 +57,10 @@ const HomeScreen = ({ navigation }) => {
   // Cargar y cachear el sonido para notificación
   const [notificationSound, setNotificationSound] = useState(null);
   useEffect(() => {
+    if (Platform.OS === 'web') {
+      return undefined;
+    }
+
     let sound;
     const loadSound = async () => {
       try {
@@ -78,7 +82,7 @@ const HomeScreen = ({ navigation }) => {
   }, []);
 
   const playNotificationSound = useCallback(async () => {
-    if (notificationSound) {
+    if (Platform.OS !== 'web' && notificationSound) {
       try {
         await notificationSound.replayAsync();
       } catch (error) {

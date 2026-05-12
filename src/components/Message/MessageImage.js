@@ -1,5 +1,6 @@
 import React, { useEffect, useState, memo, useCallback } from 'react';
 import {
+  Platform,
   TouchableOpacity,
   View,
   ActivityIndicator,
@@ -8,11 +9,12 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import ImageViewing from 'react-native-image-viewing';
 import { Image as ExpoImage } from 'expo-image';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as ImageManipulator from 'expo-image-manipulator';
+import ImageViewer from './ImageViewer';
+import { resolveMediaUrl } from '../../core/api';
 
 const IMAGE_SIZE = 200;
 const BORDER_RADIUS = 10;
@@ -21,9 +23,7 @@ const SPINNER_COLOR = '#303040';
 
 const getValidUrl = (url) => {
   if (!url) return null;
-  if (url.startsWith('http')) return url;
-  const serverUrl = 'http://127.0.0.1:8000';
-  return serverUrl + url;
+  return resolveMediaUrl(url);
 };
 
 const MessageImage = memo(({ message = {} }) => {
@@ -35,9 +35,18 @@ const MessageImage = memo(({ message = {} }) => {
 
   const downloadImage = useCallback(async () => {
     if (!message.image) return;
+
     try {
       const validUrl = getValidUrl(message.image);
-      if (!validUrl) throw new Error('URL inválida');
+      if (!validUrl) {
+        throw new Error('URL invalida');
+      }
+
+      if (Platform.OS === 'web') {
+        setImageUri(validUrl);
+        setLoaded(true);
+        return;
+      }
 
       const urlParts = validUrl.split('.');
       const originalExtension = urlParts.pop().toLowerCase();
@@ -62,12 +71,13 @@ const MessageImage = memo(({ message = {} }) => {
         );
         await FileSystem.moveAsync({ from: optimizedImage.uri, to: fileUri });
       }
+
       setImageUri(fileUri);
     } catch (error) {
       console.error('Error al cargar imagen:', error);
       setHasError(true);
     }
-  }, [message.image, message.id]);
+  }, [message.id, message.image]);
 
   useEffect(() => {
     downloadImage();
@@ -75,38 +85,46 @@ const MessageImage = memo(({ message = {} }) => {
 
   const handleDownload = useCallback(async () => {
     if (!imageUri) return;
+
     try {
       setDownloadLoading(true);
+
+      if (Platform.OS === 'web') {
+        const link = document.createElement('a');
+        link.href = imageUri;
+        link.download = `imagen-${message.id || 'chat'}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+      }
+
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted')
+      if (status !== 'granted') {
         throw new Error('Permiso requerido para guardar la imagen');
+      }
 
       await MediaLibrary.saveToLibraryAsync(imageUri);
-      Alert.alert('Éxito', 'Imagen guardada en la galería');
+      Alert.alert('Exito', 'Imagen guardada en la galeria');
     } catch (error) {
       Alert.alert('Error', error.message || 'Error al guardar imagen');
     } finally {
       setDownloadLoading(false);
     }
-  }, [imageUri]);
+  }, [imageUri, message.id]);
 
   return (
     <View style={styles.wrapper}>
-      {/* Miniatura con animación de aparición */}
       <TouchableOpacity onPress={() => setIsVisible(true)}>
         <View style={styles.container}>
-          {!loaded && !hasError && (
-            <ActivityIndicator size="small" color={SPINNER_COLOR} />
-          )}
-          {hasError && (
-            <Text style={styles.errorText}>Error al cargar imagen</Text>
-          )}
+          {!loaded && !hasError && <ActivityIndicator size="small" color={SPINNER_COLOR} />}
+          {hasError && <Text style={styles.errorText}>Error al cargar imagen</Text>}
           {imageUri && (
             <ExpoImage
               style={styles.image}
               source={{ uri: imageUri }}
-              contentFit="cover" // Equivalente a resizeMode="cover"
-              transition={1000}  // Animación fade-in de 1 segundo en miniatura
+              contentFit="cover"
+              transition={1000}
               onLoad={() => setLoaded(true)}
               onError={() => {
                 setHasError(true);
@@ -129,14 +147,13 @@ const MessageImage = memo(({ message = {} }) => {
           )}
         </View>
       </TouchableOpacity>
-      
-      {/* Vista en grande con animación fade */}
-      <ImageViewing
+
+      <ImageViewer
         images={[{ uri: imageUri }]}
         imageIndex={0}
         visible={isVisible}
         onRequestClose={() => setIsVisible(false)}
-        animationType="fade" // Animación fade al desplegar la imagen en grande
+        animationType="fade"
       />
     </View>
   );
@@ -177,6 +194,3 @@ const styles = StyleSheet.create({
 });
 
 export default MessageImage;
-
-
-
