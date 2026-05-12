@@ -36,6 +36,38 @@ function normalizeUsername(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+function normalizeBase64Payload(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue.includes(',') ? trimmedValue.split(',', 2)[1].trim() : trimmedValue;
+}
+
+function sendBase64OverSocket(socket, source, connectionId, base64, filename) {
+  if (socket?.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+
+  const base64Data = normalizeBase64Payload(base64);
+  const safeFilename = typeof filename === 'string' ? filename.trim() : '';
+  if (!base64Data || !safeFilename) {
+    console.warn(`WARNING: Payload Base64 invalido para ${source}.`);
+    return false;
+  }
+
+  socket.send(
+    JSON.stringify({
+      source,
+      connectionId,
+      base64: base64Data,
+      filename: safeFilename,
+    })
+  );
+  return true;
+}
+
 function responseMessageList(set, get, data) {
   const processedMessages = (Array.isArray(data?.messages) ? data.messages : []).map((message) => {
     const processedMessage = { ...message };
@@ -671,62 +703,19 @@ const useGlobal = create((set, get) => ({
   },
 
   messageSendImage: (connectionId, base64, filename) => {
-    const socket = get().socket;
-    if (socket?.readyState === WebSocket.OPEN) {
-      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-      socket.send(
-        JSON.stringify({
-          source: 'message.send_image',
-          connectionId,
-          base64: base64Data,
-          filename,
-        })
-      );
-    }
+    sendBase64OverSocket(get().socket, 'message.send_image', connectionId, base64, filename);
   },
 
   messageSendAudio: (connectionId, base64, filename) => {
-    const socket = get().socket;
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(
-        JSON.stringify({
-          source: 'message.send_audio',
-          connectionId,
-          base64,
-          filename,
-        })
-      );
-    }
+    sendBase64OverSocket(get().socket, 'message.send_audio', connectionId, base64, filename);
   },
 
   messageSendVideo: (connectionId, base64, filename) => {
-    const socket = get().socket;
-    if (socket?.readyState === WebSocket.OPEN) {
-      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-      socket.send(
-        JSON.stringify({
-          source: 'message.send_video',
-          connectionId,
-          base64: base64Data,
-          filename,
-        })
-      );
-    }
+    sendBase64OverSocket(get().socket, 'message.send_video', connectionId, base64, filename);
   },
 
   messageSendDocument: (connectionId, base64, filename) => {
-    const socket = get().socket;
-    if (socket?.readyState === WebSocket.OPEN) {
-      const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-      socket.send(
-        JSON.stringify({
-          source: 'message.send_document',
-          connectionId,
-          base64: base64Data,
-          filename,
-        })
-      );
-    }
+    sendBase64OverSocket(get().socket, 'message.send_document', connectionId, base64, filename);
   },
 
   messageType: (username) => {
@@ -758,11 +747,18 @@ const useGlobal = create((set, get) => ({
   uploadMiniatura: (file) => {
     const socket = get().socket;
     if (socket?.readyState === WebSocket.OPEN) {
+      const base64Data = normalizeBase64Payload(file?.base64);
+      const filename = typeof file?.fileName === 'string' ? file.fileName.trim() : '';
+      if (!base64Data || !filename) {
+        console.warn('WARNING: Payload Base64 invalido para miniatura.');
+        return;
+      }
+
       socket.send(
         JSON.stringify({
           source: 'miniatura',
-          base64: file.base64,
-          filename: file.fileName,
+          base64: base64Data,
+          filename,
         })
       );
     }
