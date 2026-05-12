@@ -1,6 +1,6 @@
 import { Alert, Platform } from 'react-native';
 import { create } from 'zustand';
-import api, { WS_BASE_URL } from './api';
+import api, { getWsBaseUrl } from './api';
 import secure from './secure';
 import { getAudio, getDocument, getImage, getVideo } from './utils';
 
@@ -560,7 +560,8 @@ const useGlobal = create((set, get) => ({
 
       set({ socketShouldReconnect: true });
 
-      const socket = new WebSocket(`${WS_BASE_URL}/ws/chat/?token=${tokens.access}`);
+      const wsBaseUrl = await getWsBaseUrl();
+      const socket = new WebSocket(`${wsBaseUrl}/ws/chat/?token=${tokens.access}`);
       let reconnectScheduled = false;
 
       const scheduleReconnect = () => {

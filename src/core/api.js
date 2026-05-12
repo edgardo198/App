@@ -85,6 +85,63 @@ function rewriteLoopbackUrl(baseUrl, runtimeHost) {
   }
 }
 
+function getDefaultPortForProtocol(protocol) {
+  return protocol === 'https:' ? '443' : '80';
+}
+
+function getPortFromBaseUrl(baseUrl) {
+  if (!baseUrl) {
+    return null;
+  }
+
+  try {
+    const parsedUrl = new URL(baseUrl);
+    return parsedUrl.port || getDefaultPortForProtocol(parsedUrl.protocol);
+  } catch {
+    return null;
+  }
+}
+
+function getRuntimeHost() {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return window.location.hostname || null;
+  }
+
+  return expoHost;
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function getHealthUrl(baseUrl) {
+  return `${baseUrl.replace(/\/+$/, '')}/health/`;
+}
+
+async function fetchWithTimeout(url, timeoutMs = 1500) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller?.abort();
+      reject(new Error('timeout'));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      fetch(url, {
+        method: 'GET',
+        signal: controller?.signal,
+      }),
+      timeoutPromise,
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 const fallbackHost = Platform.select({
   android: '10.0.2.2:8000',
   ios: '127.0.0.1:8000',
@@ -101,20 +158,87 @@ const configuredBaseUrl =
   normalizeBaseUrl(inferredBaseUrl) ||
   normalizeBaseUrl(fallbackHost);
 
-export const API_BASE_URL =
+const initialApiBaseUrl =
   Platform.OS === 'web'
     ? configuredBaseUrl
     : rewriteLoopbackUrl(configuredBaseUrl, expoHost);
 
+let resolvedApiBaseUrl = initialApiBaseUrl;
+let apiBaseUrlVerified = false;
+let apiBaseUrlPromise = null;
+
+export const API_BASE_URL = initialApiBaseUrl;
 export const ADDRESS = API_BASE_URL.replace(/^https?:\/\//i, '');
 export const WS_BASE_URL = API_BASE_URL.replace(/^http/i, 'ws');
+
+function getApiBaseUrlCandidates() {
+  const runtimeHost = getRuntimeHost();
+  const configuredPort = getPortFromBaseUrl(initialApiBaseUrl);
+  const candidatePorts = uniqueValues([
+    configuredPort,
+    process.env.EXPO_PUBLIC_API_PORT,
+    '8000',
+    '8001',
+    '8012',
+  ]);
+
+  const runtimeCandidates = runtimeHost
+    ? candidatePorts.map((port) => `http://${runtimeHost}:${port}`)
+    : [];
+
+  return uniqueValues([
+    initialApiBaseUrl,
+    rewriteLoopbackUrl(configuredBaseUrl, runtimeHost),
+    inferredBaseUrl,
+    normalizeBaseUrl(fallbackHost),
+    ...runtimeCandidates,
+  ]).map((baseUrl) => baseUrl.replace(/\/+$/, ''));
+}
+
+async function resolveReachableApiBaseUrl() {
+  const candidates = getApiBaseUrlCandidates();
+
+  for (const candidate of candidates) {
+    try {
+      const response = await fetchWithTimeout(getHealthUrl(candidate));
+      if (response?.ok) {
+        resolvedApiBaseUrl = candidate;
+        apiBaseUrlVerified = true;
+        return resolvedApiBaseUrl;
+      }
+    } catch {
+      // Try the next likely local/LAN backend URL.
+    }
+  }
+
+  return resolvedApiBaseUrl;
+}
+
+export async function getApiBaseUrl() {
+  if (apiBaseUrlVerified) {
+    return resolvedApiBaseUrl;
+  }
+
+  if (!apiBaseUrlPromise) {
+    apiBaseUrlPromise = resolveReachableApiBaseUrl().finally(() => {
+      apiBaseUrlPromise = null;
+    });
+  }
+
+  return apiBaseUrlPromise;
+}
+
+export async function getWsBaseUrl() {
+  const baseUrl = await getApiBaseUrl();
+  return baseUrl.replace(/^http/i, 'ws');
+}
 
 export function resolveMediaUrl(url) {
   if (!url) {
     return null;
   }
 
-  return /^https?:\/\//i.test(url) ? url : `${API_BASE_URL}${url}`;
+  return /^https?:\/\//i.test(url) ? url : `${resolvedApiBaseUrl}${url}`;
 }
 
 const api = axios.create({
@@ -127,6 +251,7 @@ const api = axios.create({
 api.interceptors.request.use(async (config) => {
   const tokens = await secure.get('tokens');
   const nextHeaders = config.headers || {};
+  const baseURL = await getApiBaseUrl();
   const requestUrl = String(config.url || '');
   const isPublicAuthRequest =
     requestUrl.includes('/chat/signin/') || requestUrl.includes('/chat/signup/');
@@ -138,13 +263,16 @@ api.interceptors.request.use(async (config) => {
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
     if (typeof nextHeaders.delete === 'function') {
       nextHeaders.delete('Content-Type');
+      nextHeaders.delete('content-type');
     } else {
       delete nextHeaders['Content-Type'];
+      delete nextHeaders['content-type'];
     }
   }
 
   return {
     ...config,
+    baseURL,
     headers: nextHeaders,
   };
 });
